@@ -1,0 +1,11 @@
+[package]
+name = "beatsaber"
+version = "0.1.0"
+edition = "2018"
+
+[[bin]]
+name = "bsc"
+path = "src/bsc.rs"
+
+[dependencies]
+logos = "0.12"
