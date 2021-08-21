@@ -40,7 +40,7 @@ pub enum Token {
     #[regex(r"[ \t\r]", logos::skip)]
     #[regex(r"\*.*", logos::skip)]
     #[error]
-    Error
+    Error,
 }
 
 pub struct Lexer<'a> {
@@ -67,7 +67,10 @@ impl<'a> Lexer<'a> {
     pub fn monch(&mut self, token: Token) -> Span {
         let (t, span) = self.next().unwrap();
         if t != token {
-            panic!("not the right thing there! Expected: {:?} but got: {:?} ({:?})", token, t, span);
+            panic!(
+                "not the right thing there! Expected: {:?} but got: {:?} ({:?})",
+                token, t, span
+            );
         }
         span
     }
@@ -87,7 +90,7 @@ pub fn lexer(src: &str) -> Lexer {
 
 #[cfg(test)]
 mod tests {
-    use super::{Token, Logos};
+    use super::{Logos, Token};
 
     #[test]
     fn simple_lex() {
@@ -109,7 +112,8 @@ mod tests {
 
     #[test]
     fn complex_lex() {
-        let mut lex = Token::lexer(r"* Recursive fibonacci to get the nth number in the sequence ****
+        let mut lex = Token::lexer(
+            r"* Recursive fibonacci to get the nth number in the sequence ****
 // fib is with n
 // still in fib one is 1
 // still in fib two is 2
@@ -118,7 +122,7 @@ n // still in fib if cond return is
 (n.one)..(n.two). // still in fib return is sub then fib then sub then fib then add
 // malloc is not here
 // multiply is with a and b
-"
+",
         );
         // Comments are ignored, the \n after a comment turns into a newline
         assert_eq!(lex.next(), Some(Token::Newline));

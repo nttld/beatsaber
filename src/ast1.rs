@@ -98,7 +98,7 @@ impl Iterator for Parser1<'_> {
                 self.tokens.next();
                 self.line += 1;
                 self.next()
-            },
+            }
             Some((Token::BehaviourStart, sep)) => {
                 self.tokens.next();
                 let behaviour = parse_behaviour(&mut self.tokens);
@@ -108,7 +108,7 @@ impl Iterator for Parser1<'_> {
                     sep,
                     behaviour,
                 })
-            },
+            }
             Some((Token::Identifier | Token::ParenLeft, _)) => {
                 let expr = parse_expr(&mut self.tokens);
                 let sep = self.tokens.monch(Token::BehaviourStart);
@@ -119,7 +119,7 @@ impl Iterator for Parser1<'_> {
                     sep,
                     behaviour,
                 })
-            },
+            }
             None => None,
             Some((t, s)) => panic!("token `{:?}` is invalid at position `{:?}`", t, s),
         }
@@ -146,11 +146,24 @@ fn parse_expr(tokens: &mut Lexer) -> Expr {
             Token::Operator => {
                 tokens.next();
                 match tokens.peek().unwrap() {
-                    (Token::Operator, _) => parse_expr_inner(Expr::Unop { expr: Box::new(expr), op }, tokens),
-                    (Token::ParenRight | Token::BehaviourStart, _) => Expr::Unop { expr: Box::new(expr), op },
-                    _ => Expr::Binop { lhs: Box::new(expr), op, rhs: Box::new(parse_expr(tokens)) },
+                    (Token::Operator, _) => parse_expr_inner(
+                        Expr::Unop {
+                            expr: Box::new(expr),
+                            op,
+                        },
+                        tokens,
+                    ),
+                    (Token::ParenRight | Token::BehaviourStart, _) => Expr::Unop {
+                        expr: Box::new(expr),
+                        op,
+                    },
+                    _ => Expr::Binop {
+                        lhs: Box::new(expr),
+                        op,
+                        rhs: Box::new(parse_expr(tokens)),
+                    },
                 }
-            },
+            }
             _ => expr,
         }
     }
@@ -160,11 +173,14 @@ fn parse_expr(tokens: &mut Lexer) -> Expr {
         (Token::ParenLeft, l) => {
             let expr = parse_expr(tokens);
             let r = tokens.monch(Token::ParenRight);
-            parse_expr_inner(Expr::Paren {
-                l,
-                expr: Box::new(expr),
-                r,
-            }, tokens)
+            parse_expr_inner(
+                Expr::Paren {
+                    l,
+                    expr: Box::new(expr),
+                    r,
+                },
+                tokens,
+            )
         }
         t => panic!("{:?}", t),
     }
@@ -203,13 +219,9 @@ fn parse_behaviour(tokens: &mut Lexer) -> Behaviour {
             };
             let is = tokens.monch(Token::Is);
             let value = parse_assign_value(tokens);
-            Behaviour::Assign {
-                target,
-                is,
-                value,
-            }
+            Behaviour::Assign { target, is, value }
         }
-        _ => panic!()
+        _ => panic!(),
     }
 }
 
@@ -238,7 +250,11 @@ fn parse_fn(tokens: &mut Lexer) -> Fn {
         _ => (None, None),
     };
     let ops = parse_ops(tokens);
-    Fn { with, params: FnParams {p1, and, p2}, ops }
+    Fn {
+        with,
+        params: FnParams { p1, and, p2 },
+        ops,
+    }
 }
 
 fn parse_ops(tokens: &mut Lexer) -> Vec<Op> {
@@ -254,7 +270,10 @@ fn parse_ops(tokens: &mut Lexer) -> Vec<Op> {
                     Some((Token::Newline, _)) | None => None,
                     _ => panic!(),
                 };
-                ops.push(Op { ident, then: then.clone() });
+                ops.push(Op {
+                    ident,
+                    then: then.clone(),
+                });
 
                 if then.is_none() {
                     break;

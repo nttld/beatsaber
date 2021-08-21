@@ -1,25 +1,27 @@
-use inkwell::OptimizationLevel;
+use crate::ast2::{self, FuncBlock};
+use anyhow::Result;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
 use inkwell::module::{Linkage, Module};
-use inkwell::targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple};
+use inkwell::targets::{
+    CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple,
+};
 use inkwell::types::{BasicTypeEnum, IntType};
 use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, PointerValue};
+use inkwell::OptimizationLevel;
 use std::collections::HashMap;
 use std::path::Path;
-use anyhow::Result;
-use crate::ast2::{self, FuncBlock};
 
 pub type OptLevel = OptimizationLevel;
 
 pub struct CodegenOptions<'a> {
-    output: &'a Path,
-    optimization: OptLevel,
+    pub output: &'a Path,
+    pub optimization: OptLevel,
     /// Position Independent Code
-    pic: bool,
+    pub pic: bool,
     /// Target triple, None for host
-    target: Option<String>,
+    pub target: Option<String>,
 }
 
 pub struct Codegen<'ctx> {
@@ -39,7 +41,7 @@ impl<'ctx> Codegen<'ctx> {
     pub fn compile(ast: Vec<ast2::DecoratedStmt>, options: CodegenOptions) -> Result<()> {
         let context = Context::create();
         let module = context.create_module("beat saber");
-        
+
         let mut codegen = Codegen {
             context: &context,
             module,
@@ -65,21 +67,26 @@ impl<'ctx> Codegen<'ctx> {
                 ast2::DecoratedStmt::Callable(ast2::Callable::ExternFunction(stmt)) => {
                     let mut param_types = vec![
                         BasicTypeEnum::IntType(self.i64),
-                        BasicTypeEnum::IntType(self.i64)
+                        BasicTypeEnum::IntType(self.i64),
                     ];
                     let fn_type = self.i64.fn_type(&param_types, false);
-                    let fn_val = self.module.add_function(&stmt.name, fn_type, Some(Linkage::External));
+                    let fn_val =
+                        self.module
+                            .add_function(&stmt.name, fn_type, Some(Linkage::External));
                     self.functions.insert(stmt.ident.id, fn_val);
-
                 }
                 ast2::DecoratedStmt::Callable(ast2::Callable::FuncBlock(stmt)) => {
                     let mut param_types = Vec::new();
                     if stmt.decl.p2.is_some() {
                         param_types.push(BasicTypeEnum::IntType(self.i64));
                     }
-                    
+
                     let fn_type = self.i64.fn_type(&param_types, false);
-                    let fn_val = self.module.add_function(&stmt.decl.id.id.to_string(), fn_type, Some(Linkage::Internal));
+                    let fn_val = self.module.add_function(
+                        &stmt.decl.id.id.to_string(),
+                        fn_type,
+                        Some(Linkage::Internal),
+                    );
                     self.functions.insert(stmt.decl.id.id, fn_val);
 
                     self.declare_func_children(&stmt.block);
@@ -100,7 +107,7 @@ impl<'ctx> Codegen<'ctx> {
 
         match entry.get_first_instruction() {
             Some(first_instr) => builder.position_before(&first_instr),
-            None => builder.position_at_end(entry)
+            None => builder.position_at_end(entry),
         }
 
         let ptr = builder.build_alloca(self.i64, "");
@@ -110,7 +117,9 @@ impl<'ctx> Codegen<'ctx> {
 
     fn build_main(&mut self, body: Vec<ast2::DecoratedStmt>) {
         let fn_type = self.context.i32_type().fn_type(&[], false);
-        let fn_val = self.module.add_function("main", fn_type, Some(Linkage::External));
+        let fn_val = self
+            .module
+            .add_function("main", fn_type, Some(Linkage::External));
         self.cur_func = Some(fn_val);
 
         for stmt in body {
@@ -147,7 +156,12 @@ impl<'ctx> Codegen<'ctx> {
                 if let Some(p2) = expr.p2 {
                     args.push(BasicValueEnum::IntValue(self.build_expr(*p2)));
                 }
-                self.builder.build_call(fn_val, &args, "").try_as_basic_value().left().unwrap().into_int_value()
+                self.builder
+                    .build_call(fn_val, &args, "")
+                    .try_as_basic_value()
+                    .left()
+                    .unwrap()
+                    .into_int_value()
             }
             ast2::DecoratedExpr::Identifier(expr) => {
                 let ptr = self.cur_locals[&expr.id];
@@ -175,7 +189,8 @@ impl<'ctx> Codegen<'ctx> {
                 self.cur_line_map.insert(line, block);
 
                 let else_block = block.get_next_basic_block().unwrap();
-                self.builder.build_conditional_branch(cond, then_block, else_block);
+                self.builder
+                    .build_conditional_branch(cond, then_block, else_block);
             }
             ast2::DecoratedStmt::Assignment(stmt) => {
                 if let Some(id) = stmt.name {
@@ -189,14 +204,12 @@ impl<'ctx> Codegen<'ctx> {
                     self.func_compile_queue.push(stmt);
                 }
                 _ => {}
-            }
+            },
             ast2::DecoratedStmt::ReturnStmt(stmt) => {
                 let val = self.build_expr(stmt.expr);
                 self.builder.build_return(Some(&val));
             }
-            ast2::DecoratedStmt::GotoStmt(stmt) => {
-
-            }
+            ast2::DecoratedStmt::GotoStmt(stmt) => {}
         }
     }
 
@@ -227,17 +240,12 @@ impl<'ctx> Codegen<'ctx> {
         let opt = options.optimization;
 
         let target_machine = target
-            .create_target_machine(
-                &triple,
-                &cpu,
-                &features,
-                opt,
-                reloc,
-                model,
-            ).unwrap();
+            .create_target_machine(&triple, &cpu, &features, opt, reloc, model)
+            .unwrap();
 
         target_machine
-            .write_to_file(&self.module, FileType::Object, options.output).unwrap();
+            .write_to_file(&self.module, FileType::Object, options.output)
+            .unwrap();
 
         Ok(())
     }

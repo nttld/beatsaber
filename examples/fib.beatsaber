@@ -1,2 +1,12 @@
-
+* Recursive fibonacci to get the nth number in the sequence
+// less is not here
+// sub is not here
+// add is not here
+// fib is with n
+// still in fib one is 1
+// still in fib two is 2
+n.two // still in fib cond is less
+n // still in fib if cond return is
 (n.one)..(n.two). // still in fib return is sub then fib then sub then fib then add
+
+* fib(n - 1) + fib(n - 2)

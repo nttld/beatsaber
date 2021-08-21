@@ -1,9 +1,10 @@
 use std::path::Path;
 
-use clap::{AppSettings, Clap};
 use anyhow::Result;
-use std::fs;
+use beatsaber::codegen::{self, CodegenOptions};
 use beatsaber::{ast1, ast2, lexer};
+use clap::{AppSettings, Clap};
+use std::fs;
 
 #[derive(Clap)]
 #[clap(version = "0.1.0", author = "untitled")]
@@ -27,7 +28,7 @@ struct Args {
 
 fn main() -> Result<()> {
     let args = Args::parse();
-    
+
     let output_path = args.output.clone().unwrap_or_else(|| {
         let input_path = Path::new(&args.input);
         input_path
@@ -42,8 +43,15 @@ fn main() -> Result<()> {
     let lexer = lexer::lexer(&src);
     let parser = ast1::parser(lexer);
     let ast2 = ast2::parse(parser, &src);
+    let options = CodegenOptions {
+        output: Path::new(output_path),
+        optimization: codegen::OptLevel::Default,
+        pic: true,
+        target: None,
+    };
+    let codegen = codegen::Codegen::compile(ast2, options)?;
 
-    dbg!(ast2);
+    // dbg!(ast2);
 
     Ok(())
 }
