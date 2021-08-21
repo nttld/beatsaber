@@ -1,11 +1,11 @@
-use logos::Logos;
+use logos::{Logos, Span};
 
-#[derive(Logos, Debug, PartialEq)]
+#[derive(Logos, Debug, PartialEq, Clone, Copy)]
 pub enum Token {
     #[token(".")]
     Operator,
     #[token("//")]
-    ExpressionStart,
+    BehaviourStart,
     #[token("is")]
     Is,
     #[token("then")]
@@ -28,6 +28,8 @@ pub enum Token {
     ParenRight,
     #[token("still in")]
     StillIn,
+    #[token("and")]
+    And,
     #[regex(r"\n|\f")]
     Newline,
     #[regex(r"[A-Za-z_][A-Za-z_0-9]*")]
@@ -41,6 +43,42 @@ pub enum Token {
     Error
 }
 
+pub struct Lexer<'a> {
+    inner: logos::SpannedIter<'a, Token>,
+    peeked: Option<Option<(Token, Span)>>,
+}
+
+impl<'a> Lexer<'a> {
+    pub fn next(&mut self) -> Option<(Token, Span)> {
+        if let Some(next) = self.peeked.take() {
+            return next;
+        }
+        self.inner.next()
+    }
+
+    pub fn peek(&mut self) -> Option<(Token, Span)> {
+        if let Some(peeked) = &mut self.peeked {
+            return peeked.clone();
+        }
+        self.peeked.insert(self.inner.next()).clone()
+    }
+
+    pub fn monch(&mut self, token: Token) -> Span {
+        let (t, span) = self.next().unwrap();
+        if t != token {
+            panic!("not the right thing there! Expected: {:?} but got: {:?} ({:?})", token, t, span);
+        }
+        span
+    }
+}
+
+pub fn lexer<'a>(input: &'a str) -> Lexer<'a> {
+    Lexer {
+        inner: Token::lexer(input).spanned(),
+        peeked: None,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::{Token, Logos};
@@ -52,7 +90,7 @@ mod tests {
         assert_eq!(lex.slice(), "a");
         assert_eq!(lex.next(), Some(Token::Operator));
         assert_eq!(lex.slice(), ".");
-        assert_eq!(lex.next(), Some(Token::ExpressionStart));
+        assert_eq!(lex.next(), Some(Token::BehaviourStart));
         assert_eq!(lex.slice(), "//");
         assert_eq!(lex.next(), Some(Token::Discard));
         assert_eq!(lex.slice(), "yeet");
@@ -73,11 +111,12 @@ n.two // still in fib cond is less
 n // still in fib if cond return is
 (n.one)..(n.two). // still in fib return is sub then fib then sub then fib then add
 // malloc is not here
+// multiply is with a and b
 "
         );
         // Comments are ignored, the \n after a comment turns into a newline
         assert_eq!(lex.next(), Some(Token::Newline));
-        assert_eq!(lex.next(), Some(Token::ExpressionStart));
+        assert_eq!(lex.next(), Some(Token::BehaviourStart));
         assert_eq!(lex.next(), Some(Token::Identifier));
         assert_eq!(lex.next(), Some(Token::Is));
         assert_eq!(lex.next(), Some(Token::With));
@@ -85,7 +124,7 @@ n // still in fib if cond return is
         assert_eq!(lex.slice(), "n");
         assert_eq!(lex.next(), Some(Token::Newline));
 
-        assert_eq!(lex.next(), Some(Token::ExpressionStart));
+        assert_eq!(lex.next(), Some(Token::BehaviourStart));
         assert_eq!(lex.next(), Some(Token::StillIn));
         assert_eq!(lex.next(), Some(Token::Identifier));
         assert_eq!(lex.slice(), "fib");
@@ -95,7 +134,7 @@ n // still in fib if cond return is
         assert_eq!(lex.next(), Some(Token::Number(1)));
         assert_eq!(lex.next(), Some(Token::Newline));
 
-        assert_eq!(lex.next(), Some(Token::ExpressionStart));
+        assert_eq!(lex.next(), Some(Token::BehaviourStart));
         assert_eq!(lex.next(), Some(Token::StillIn));
         assert_eq!(lex.next(), Some(Token::Identifier));
         assert_eq!(lex.slice(), "fib");
@@ -110,7 +149,7 @@ n // still in fib if cond return is
         assert_eq!(lex.next(), Some(Token::Operator));
         assert_eq!(lex.next(), Some(Token::Identifier));
         assert_eq!(lex.slice(), "two");
-        assert_eq!(lex.next(), Some(Token::ExpressionStart));
+        assert_eq!(lex.next(), Some(Token::BehaviourStart));
         assert_eq!(lex.next(), Some(Token::StillIn));
         assert_eq!(lex.next(), Some(Token::Identifier));
         assert_eq!(lex.slice(), "fib");
@@ -123,7 +162,7 @@ n // still in fib if cond return is
 
         assert_eq!(lex.next(), Some(Token::Identifier));
         assert_eq!(lex.slice(), "n");
-        assert_eq!(lex.next(), Some(Token::ExpressionStart));
+        assert_eq!(lex.next(), Some(Token::BehaviourStart));
         assert_eq!(lex.next(), Some(Token::StillIn));
         assert_eq!(lex.next(), Some(Token::Identifier));
         assert_eq!(lex.slice(), "fib");
@@ -151,7 +190,7 @@ n // still in fib if cond return is
         assert_eq!(lex.slice(), "two");
         assert_eq!(lex.next(), Some(Token::ParenRight));
         assert_eq!(lex.next(), Some(Token::Operator));
-        assert_eq!(lex.next(), Some(Token::ExpressionStart));
+        assert_eq!(lex.next(), Some(Token::BehaviourStart));
         assert_eq!(lex.next(), Some(Token::StillIn));
         assert_eq!(lex.next(), Some(Token::Identifier));
         assert_eq!(lex.slice(), "fib");
@@ -173,11 +212,22 @@ n // still in fib if cond return is
         assert_eq!(lex.slice(), "add");
         assert_eq!(lex.next(), Some(Token::Newline));
 
-        assert_eq!(lex.next(), Some(Token::ExpressionStart));
+        assert_eq!(lex.next(), Some(Token::BehaviourStart));
         assert_eq!(lex.next(), Some(Token::Identifier));
         assert_eq!(lex.slice(), "malloc");
         assert_eq!(lex.next(), Some(Token::Is));
         assert_eq!(lex.next(), Some(Token::NotHere));
         assert_eq!(lex.next(), Some(Token::Newline));
+
+        assert_eq!(lex.next(), Some(Token::BehaviourStart));
+        assert_eq!(lex.next(), Some(Token::Identifier));
+        assert_eq!(lex.slice(), "multiply");
+        assert_eq!(lex.next(), Some(Token::Is));
+        assert_eq!(lex.next(), Some(Token::With));
+        assert_eq!(lex.next(), Some(Token::Identifier));
+        assert_eq!(lex.slice(), "a");
+        assert_eq!(lex.next(), Some(Token::And));
+        assert_eq!(lex.next(), Some(Token::Identifier));
+        assert_eq!(lex.slice(), "b");
     }
 }
