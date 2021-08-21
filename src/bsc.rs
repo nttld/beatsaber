@@ -52,6 +52,5 @@ fn main() -> Result<()> {
     // dbg!(&ast2);
     let codegen = codegen::Codegen::compile(ast2, options)?;
 
-
     Ok(())
 }

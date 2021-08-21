@@ -211,11 +211,11 @@ fn parse_behaviour<'a>(
                                 },
                                 block: Vec::new(),
                             };
-                            if expr.is_some() {
+                            if let Some(expr) = &expr {
                                 block.block.push(DecoratedStmt::Assignment(Assignment {
                                     line,
                                     name: None,
-                                    value: zip_ops_with_expr(&expr.unwrap(), &f.ops, ids, src),
+                                    value: zip_ops_with_expr(expr, &f.ops, ids, src),
                                 }));
                             }
                             func_ids.insert(ident, Callable::FuncBlock(block));
@@ -281,7 +281,7 @@ fn parse_behaviour<'a>(
                 panic!("'{}' is not a function!", ident_str);
             }
             match body.unwrap() {
-                Callable::FuncBlock(FuncBlock { block, .. }) => block.push(ret.clone()),
+                Callable::FuncBlock(FuncBlock { block, .. }) => block.push(ret),
                 Callable::ExternFunction(ExternFunction { name, .. }) => {
                     panic!("Cannot be within an exported function: {}", name)
                 }

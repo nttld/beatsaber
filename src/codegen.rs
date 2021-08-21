@@ -1,4 +1,4 @@
-use crate::ast2::{self, FuncBlock};
+use crate::ast2;
 use anyhow::Result;
 use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
@@ -12,6 +12,60 @@ use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, PointerValue};
 use inkwell::OptimizationLevel;
 use std::collections::HashMap;
 use std::path::Path;
+
+/// Look for any identifier that is not declared in this function and assume they are captures.
+fn find_captures(stmts: &[ast2::DecoratedStmt], params: &[usize]) -> Vec<usize> {
+    let mut locals = params.to_vec();
+    let mut captures = Vec::new();
+    fn process_expr(locals: &[usize], captures: &mut Vec<usize>, expr: &ast2::DecoratedExpr) {
+        match expr {
+            ast2::DecoratedExpr::Identifier(ident) => {
+                if !locals.contains(&ident.id) {
+                    captures.push(ident.id);
+                }
+            }
+            ast2::DecoratedExpr::CallExpr(expr) => {
+                process_expr(locals, captures, &*expr.p1);
+                if let Some(p2) = &expr.p2 {
+                    process_expr(locals, captures, &*p2);
+                }
+            }
+        }
+    }
+    fn process_stmt(locals: &mut Vec<usize>, captures: &mut Vec<usize>, stmt: &ast2::DecoratedStmt) {
+        match stmt {
+            ast2::DecoratedStmt::LoadLiteralNumber(stmt) => {
+                locals.push(stmt.ident.id);
+            }
+            ast2::DecoratedStmt::Callable(ast2::Callable::FuncBlock(block)) => {
+                locals.push(block.decl.p1.id);
+                if let Some(p2) = block.decl.p2 {
+                    locals.push(p2.id);
+                }
+                for stmt in &block.block {
+                    process_stmt(locals, captures, stmt);
+                }
+            }
+            ast2::DecoratedStmt::Conditional(stmt) => {
+                process_stmt(locals, captures, &*stmt.success);
+            }
+            ast2::DecoratedStmt::Assignment(stmt) => {
+                process_expr(locals, captures, &stmt.value);
+                if let Some(ident) = stmt.name {
+                    locals.push(ident.id);
+                }
+            }
+            ast2::DecoratedStmt::ReturnStmt(stmt) => {
+                process_expr(locals, captures, &stmt.expr);
+            }
+            _ => {}
+        }
+    }
+    for stmt in stmts {
+        process_stmt(&mut locals, &mut captures, stmt);
+    }
+    captures
+}
 
 pub type OptLevel = OptimizationLevel;
 
@@ -29,8 +83,10 @@ pub struct Codegen<'ctx> {
     module: Module<'ctx>,
     builder: Builder<'ctx>,
     i64: IntType<'ctx>,
-    func_compile_queue: Vec<FuncBlock>,
+    func_compile_queue: Vec<ast2::FuncBlock>,
     functions: HashMap<usize, FunctionValue<'ctx>>,
+    /// fn id -> [capture id]
+    function_captures: HashMap<usize, Vec<usize>>,
 
     cur_locals: HashMap<usize, PointerValue<'ctx>>,
     cur_func: Option<FunctionValue<'ctx>>,
@@ -49,6 +105,7 @@ impl<'ctx> Codegen<'ctx> {
             i64: context.i64_type(),
             func_compile_queue: Vec::new(),
             functions: HashMap::new(),
+            function_captures: HashMap::new(),
 
             cur_locals: HashMap::new(),
             cur_func: None,
@@ -65,7 +122,8 @@ impl<'ctx> Codegen<'ctx> {
         for stmt in stmts {
             match stmt {
                 ast2::DecoratedStmt::Callable(ast2::Callable::ExternFunction(stmt)) => {
-                    let mut param_types = vec![
+                    self.function_captures.insert(stmt.ident.id, Vec::new());
+                    let param_types = vec![
                         BasicTypeEnum::IntType(self.i64),
                         BasicTypeEnum::IntType(self.i64),
                     ];
@@ -77,9 +135,17 @@ impl<'ctx> Codegen<'ctx> {
                 }
                 ast2::DecoratedStmt::Callable(ast2::Callable::FuncBlock(stmt)) => {
                     let mut param_types = vec![BasicTypeEnum::IntType(self.i64)];
-                    if stmt.decl.p2.is_some() {
+                    let mut params = vec![stmt.decl.p1.id];
+                    if let Some(p2) = stmt.decl.p2 {
+                        params.push(p2.id);
                         param_types.push(BasicTypeEnum::IntType(self.i64));
                     }
+
+                    let captures = find_captures(&stmt.block, &params);
+                    for _ in &captures {
+                        param_types.push(BasicTypeEnum::IntType(self.i64));
+                    }
+                    self.function_captures.insert(stmt.decl.id.id, captures);
 
                     let fn_type = self.i64.fn_type(&param_types, false);
                     let fn_val = self.module.add_function(
@@ -96,23 +162,25 @@ impl<'ctx> Codegen<'ctx> {
         }
     }
 
-    fn get_local(&mut self, id: usize) -> PointerValue<'ctx> {
+    fn get_local(&mut self, id: usize, create: bool) -> PointerValue<'ctx> {
         if let Some(local) = self.cur_locals.get(&id) {
-            return *local;
+            *local
+        } else if create {
+            let builder = self.context.create_builder();
+
+            let entry = self.cur_func.unwrap().get_first_basic_block().unwrap();
+
+            match entry.get_first_instruction() {
+                Some(first_instr) => builder.position_before(&first_instr),
+                None => builder.position_at_end(entry),
+            }
+
+            let ptr = builder.build_alloca(self.i64, "");
+            self.cur_locals.insert(id, ptr);
+            ptr
+        } else {
+            panic!("Could not find local {}", id);
         }
-
-        let builder = self.context.create_builder();
-
-        let entry = self.cur_func.unwrap().get_first_basic_block().unwrap();
-
-        match entry.get_first_instruction() {
-            Some(first_instr) => builder.position_before(&first_instr),
-            None => builder.position_at_end(entry),
-        }
-
-        let ptr = builder.build_alloca(self.i64, "");
-        self.cur_locals.insert(id, ptr);
-        ptr
     }
 
     fn build_main(&mut self, body: Vec<ast2::DecoratedStmt>) {
@@ -143,7 +211,13 @@ impl<'ctx> Codegen<'ctx> {
         }
     }
 
-    fn build_func(&mut self, body: Vec<ast2::DecoratedStmt>, id: usize, p1: usize, p2: Option<usize>) {
+    fn build_func(
+        &mut self,
+        body: Vec<ast2::DecoratedStmt>,
+        id: usize,
+        p1: usize,
+        p2: Option<usize>,
+    ) {
         self.cur_locals.clear();
         self.cur_line_map.clear();
         let fn_val = *self.functions.get(&id).unwrap();
@@ -163,6 +237,13 @@ impl<'ctx> Codegen<'ctx> {
             self.cur_locals.insert(p2, p2alloca);
         }
 
+        let capture_offset = p2.is_some() as usize + 1;
+        for (i, &capture) in self.function_captures[&id].iter().enumerate() {
+            let alloca = self.builder.build_alloca(self.i64, "");
+            self.builder.build_store(alloca, params[capture_offset + i]);
+            self.cur_locals.insert(capture, alloca);
+        }
+
         for stmt in &body {
             let line = stmt.line_number();
             if matches!(stmt, ast2::DecoratedStmt::Callable(_)) {
@@ -172,22 +253,23 @@ impl<'ctx> Codegen<'ctx> {
             self.cur_line_map.insert(line, block);
         }
 
-        self.builder.build_unconditional_branch(entry.get_next_basic_block().unwrap());
+        self.builder
+            .build_unconditional_branch(entry.get_next_basic_block().unwrap());
 
         for stmt in body {
             self.build_stmt(stmt);
         }
 
-        // if let Some(func) = self.cur_func {
-        //     if func.verify(true) {
-        //     } else {
-        //         unsafe {
-        //             func.delete();
-        //         }
-    
-        //         panic!("stack bad");
-        //     }
-        // }
+        if let Some(func) = self.cur_func {
+            if func.verify(true) {
+            } else {
+                unsafe {
+                    func.delete();
+                }
+
+                panic!("stack bad");
+            }
+        }
     }
 
     fn build_expr(&mut self, expr: ast2::DecoratedExpr) -> IntValue<'ctx> {
@@ -200,6 +282,11 @@ impl<'ctx> Codegen<'ctx> {
                 if let Some(p2) = expr.p2 {
                     args.push(BasicValueEnum::IntValue(self.build_expr(*p2)));
                 }
+                for &capture in &self.function_captures[&expr.function.id].clone() {
+                    dbg!(capture);
+                    let ptr = self.get_local(capture, false);
+                    args.push(self.builder.build_load(ptr, ""));
+                }
                 self.builder
                     .build_call(fn_val, &args, "")
                     .try_as_basic_value()
@@ -208,23 +295,19 @@ impl<'ctx> Codegen<'ctx> {
                     .into_int_value()
             }
             ast2::DecoratedExpr::Identifier(expr) => {
-                let ptr = self.get_local(expr.id);
+                let ptr = self.get_local(expr.id, false);
                 self.builder.build_load(ptr, "").into_int_value()
             }
         }
     }
 
     fn build_stmt(&mut self, stmt: ast2::DecoratedStmt) {
-        match stmt {
-            ast2::DecoratedStmt::Callable(stmt) => match stmt {
-                ast2::Callable::FuncBlock(stmt) => {
-                    // println!("Pushing function block to compile queue {:?}", stmt);
-                    self.func_compile_queue.push(stmt);
-                    return;
-                }
-                _ => return,
+        if let ast2::DecoratedStmt::Callable(stmt) = stmt {
+            if let ast2::Callable::FuncBlock(stmt) = stmt {
+                // println!("Pushing function block to compile queue {:?}", stmt);
+                self.func_compile_queue.push(stmt);
             }
-            _ => {}
+            return;
         }
 
         let line = stmt.line_number();
@@ -232,7 +315,7 @@ impl<'ctx> Codegen<'ctx> {
         self.builder.position_at_end(block);
         match stmt {
             ast2::DecoratedStmt::LoadLiteralNumber(stmt) => {
-                let ptr = self.get_local(stmt.ident.id);
+                let ptr = self.get_local(stmt.ident.id, true);
                 let val = self.i64.const_int(stmt.value as u64, false);
                 self.builder.build_store(ptr, val);
             }
@@ -251,7 +334,7 @@ impl<'ctx> Codegen<'ctx> {
             }
             ast2::DecoratedStmt::Assignment(stmt) => {
                 if let Some(id) = stmt.name {
-                    let ptr = self.get_local(id.id);
+                    let ptr = self.get_local(id.id, true);
                     let val = self.build_expr(stmt.value);
                     self.builder.build_store(ptr, val);
                 }
@@ -260,8 +343,10 @@ impl<'ctx> Codegen<'ctx> {
                 let val = self.build_expr(stmt.expr);
                 self.builder.build_return(Some(&val));
             }
-            ast2::DecoratedStmt::GotoStmt(stmt) => {}
-            _ => unreachable!()
+            ast2::DecoratedStmt::GotoStmt(_stmt) => {
+                todo!();
+            }
+            _ => unreachable!(),
         }
         if let Some(next_block) = block.get_next_basic_block() {
             self.builder.build_unconditional_branch(next_block);
