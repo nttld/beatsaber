@@ -45,13 +45,13 @@ fn main() -> Result<()> {
     let ast2 = ast2::parse(parser, &src);
     let options = CodegenOptions {
         output: Path::new(output_path),
-        optimization: codegen::OptLevel::Default,
+        optimization: codegen::OptLevel::Aggressive,
         pic: true,
         target: None,
     };
+    // dbg!(&ast2);
     let codegen = codegen::Codegen::compile(ast2, options)?;
 
-    // dbg!(ast2);
 
     Ok(())
 }

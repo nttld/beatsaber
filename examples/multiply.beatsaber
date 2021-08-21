@@ -1,0 +1,12 @@
+// decrement is not here
+// add is not here
+// greater is not here
+// multiply is with a and b
+// still in multiply zero is 0
+// still in multiply total is 0
+// still in multiply loopStart is 8
+b. // still in multiply b is decrement
+total.a // still in multiply total is add
+b.zero // still in multiply cond is greater
+loopStart // still in multiply if cond goto is
+total // still in multiply return is

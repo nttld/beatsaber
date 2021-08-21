@@ -122,10 +122,14 @@ impl<'ctx> Codegen<'ctx> {
             .add_function("main", fn_type, Some(Linkage::External));
         self.cur_func = Some(fn_val);
 
-        for stmt in body {
+        for stmt in &body {
             let line = stmt.line_number();
             let block = self.context.append_basic_block(self.cur_func.unwrap(), "");
             self.cur_line_map.insert(line, block);
+        }
+
+        for stmt in body {
+            self.build_stmt(stmt);
         }
 
         while !self.func_compile_queue.is_empty() {
@@ -139,11 +143,26 @@ impl<'ctx> Codegen<'ctx> {
         self.cur_line_map.clear();
         self.cur_func = Some(*self.functions.get(&id).unwrap());
 
-        for stmt in body {
+        for stmt in &body {
             let line = stmt.line_number();
             let block = self.context.append_basic_block(self.cur_func.unwrap(), "");
             self.cur_line_map.insert(line, block);
         }
+
+        for stmt in body {
+            self.build_stmt(stmt);
+        }
+
+        // if let Some(func) = self.cur_func {
+        //     if func.verify(true) {
+        //     } else {
+        //         unsafe {
+        //             func.delete();
+        //         }
+    
+        //         panic!("stack bad");
+        //     }
+        // }
     }
 
     fn build_expr(&mut self, expr: ast2::DecoratedExpr) -> IntValue<'ctx> {
@@ -164,7 +183,7 @@ impl<'ctx> Codegen<'ctx> {
                     .into_int_value()
             }
             ast2::DecoratedExpr::Identifier(expr) => {
-                let ptr = self.cur_locals[&expr.id];
+                let ptr = self.get_local(expr.id);
                 self.builder.build_load(ptr, "").into_int_value()
             }
         }
@@ -189,6 +208,7 @@ impl<'ctx> Codegen<'ctx> {
                 self.cur_line_map.insert(line, block);
 
                 let else_block = block.get_next_basic_block().unwrap();
+                self.builder.position_at_end(block);
                 self.builder
                     .build_conditional_branch(cond, then_block, else_block);
             }
@@ -201,6 +221,7 @@ impl<'ctx> Codegen<'ctx> {
             }
             ast2::DecoratedStmt::Callable(stmt) => match stmt {
                 ast2::Callable::FuncBlock(stmt) => {
+                    // println!("Pushing function block to compile queue {:?}", stmt);
                     self.func_compile_queue.push(stmt);
                 }
                 _ => {}
@@ -210,6 +231,9 @@ impl<'ctx> Codegen<'ctx> {
                 self.builder.build_return(Some(&val));
             }
             ast2::DecoratedStmt::GotoStmt(stmt) => {}
+        }
+        if let Some(next_block) = block.get_next_basic_block() {
+            self.builder.build_unconditional_branch(next_block);
         }
     }
 
@@ -243,6 +267,7 @@ impl<'ctx> Codegen<'ctx> {
             .create_target_machine(&triple, &cpu, &features, opt, reloc, model)
             .unwrap();
 
+        self.module.print_to_stderr();
         target_machine
             .write_to_file(&self.module, FileType::Object, options.output)
             .unwrap();

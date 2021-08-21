@@ -151,7 +151,7 @@ fn parse_behaviour<'a>(
     behaviour: Behaviour,
     expr: Option<Expr>,
     ids: &mut HashMap<&'a str, Identifier>,
-    funcIds: &mut HashMap<Identifier, Callable>,
+    func_ids: &mut HashMap<Identifier, Callable>,
     src: &'a str,
 ) -> Option<DecoratedStmt> {
     match behaviour {
@@ -174,7 +174,7 @@ fn parse_behaviour<'a>(
                         AssignValue::NotHere(_) => {
                             // Must have an identifier for exported functions
                             let ident = create_identifier(ids, id);
-                            funcIds.insert(
+                            func_ids.insert(
                                 ident,
                                 Callable::ExternFunction(ExternFunction {
                                     line,
@@ -218,9 +218,9 @@ fn parse_behaviour<'a>(
                                     value: zip_ops_with_expr(&expr.unwrap(), &f.ops, ids, src),
                                 }));
                             }
-                            funcIds.insert(ident, Callable::FuncBlock(block));
+                            func_ids.insert(ident, Callable::FuncBlock(block));
                             // This should NOT be added right away, since it will not hold all of the potential blocks.
-                            // See funcIds instead.
+                            // See func_ids instead.
                             None
                         }
                     }
@@ -267,18 +267,18 @@ fn parse_behaviour<'a>(
         } => {
             // Recursive parse behaviour
             // Map ident to correct function
-            let identStr = &src[ident];
-            let func = ids.get(identStr).cloned();
+            let ident_str = &src[ident];
+            let func = ids.get(ident_str).cloned();
             if func.is_none() {
                 panic!(
                     "'{}' is not a valid identifier for '{}'!",
-                    identStr, &src[still_in]
+                    ident_str, &src[still_in]
                 );
             }
-            let ret = parse_behaviour(line, *behaviour, expr, ids, funcIds, src).unwrap();
-            let mut body = funcIds.get_mut(&func.unwrap());
+            let ret = parse_behaviour(line, *behaviour, expr, ids, func_ids, src).unwrap();
+            let mut body = func_ids.get_mut(&func.unwrap());
             if body.is_none() {
-                panic!("'{}' is not a function!", identStr);
+                panic!("'{}' is not a function!", ident_str);
             }
             match body.unwrap() {
                 Callable::FuncBlock(FuncBlock { block, .. }) => block.push(ret.clone()),
@@ -295,17 +295,17 @@ fn parse_behaviour<'a>(
         } => {
             // Recursive parse behaviour
             // Map cond to identifier
-            let identStr = &src[cond];
-            let ident = ids.get(identStr).unwrap_or_else(|| {
+            let ident_str = &src[cond];
+            let ident = ids.get(ident_str).unwrap_or_else(|| {
                 panic!(
                     "'{}' is not a valid identifier for '{}'!",
-                    identStr, &src[if_]
+                    ident_str, &src[if_]
                 )
             });
             Some(DecoratedStmt::Conditional(Conditional {
                 condition: *ident,
                 success: Box::new(
-                    parse_behaviour(line, *behaviour, expr, ids, funcIds, src).unwrap_or_else(
+                    parse_behaviour(line, *behaviour, expr, ids, func_ids, src).unwrap_or_else(
                         || panic!("If statements cannot be used on function declarations!"),
                     ),
                 ),
@@ -317,21 +317,21 @@ fn parse_behaviour<'a>(
 pub fn parse(stmts: Parser1, src: &str) -> Vec<DecoratedStmt> {
     let mut outp = Vec::new();
     let mut ids = HashMap::new();
-    let mut funcIds = HashMap::new();
+    let mut func_ids = HashMap::new();
     for stmt in stmts {
         let val = parse_behaviour(
             stmt.line,
             stmt.behaviour,
             stmt.expr,
             &mut ids,
-            &mut funcIds,
+            &mut func_ids,
             src,
         );
         if let Some(val) = val {
             outp.push(val);
         }
     }
-    outp.extend(funcIds.into_values().map(DecoratedStmt::Callable));
+    outp.extend(func_ids.into_values().map(DecoratedStmt::Callable));
     outp
 }
 
@@ -353,9 +353,9 @@ fn zip_ops_with_expr<'a>(
                 let (rhs, ops) = inner(rhs, ops, ids, src);
                 let (op, ops) = ops.split_first().unwrap();
 
-                let keyString = &src[op.ident.clone()];
-                let ident = ids.get(keyString).unwrap_or_else(|| {
-                    panic!("Could not find identifier for binary op: '{}'", keyString)
+                let key_string = &src[op.ident.clone()];
+                let ident = ids.get(key_string).unwrap_or_else(|| {
+                    panic!("Could not find identifier for binary op: '{}'", key_string)
                 });
                 (
                     DecoratedExpr::CallExpr(CallExpr {
@@ -369,9 +369,9 @@ fn zip_ops_with_expr<'a>(
             Expr::Unop { expr, .. } => {
                 let (expr, ops) = inner(expr, ops, ids, src);
                 let (op, ops) = ops.split_first().unwrap();
-                let keyString = &src[op.ident.clone()];
-                let ident = ids.get(keyString).unwrap_or_else(|| {
-                    panic!("Could not find identifier for unary op: '{}'", keyString)
+                let key_string = &src[op.ident.clone()];
+                let ident = ids.get(key_string).unwrap_or_else(|| {
+                    panic!("Could not find identifier for unary op: '{}'", key_string)
                 });
                 (
                     DecoratedExpr::CallExpr(CallExpr {
@@ -384,11 +384,11 @@ fn zip_ops_with_expr<'a>(
             }
             Expr::Paren { expr, .. } => inner(expr, ops, ids, src),
             Expr::Ident(span) => {
-                let keyString = &src[span.clone()];
-                let ident = ids.get(keyString).unwrap_or_else(|| {
+                let key_string = &src[span.clone()];
+                let ident = ids.get(key_string).unwrap_or_else(|| {
                     panic!(
                         "Could not find identifier for single identifier: '{}'",
-                        keyString
+                        key_string
                     )
                 });
                 (DecoratedExpr::Identifier(*ident), ops)
