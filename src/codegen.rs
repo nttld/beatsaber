@@ -76,7 +76,7 @@ impl<'ctx> Codegen<'ctx> {
                     self.functions.insert(stmt.ident.id, fn_val);
                 }
                 ast2::DecoratedStmt::Callable(ast2::Callable::FuncBlock(stmt)) => {
-                    let mut param_types = Vec::new();
+                    let mut param_types = vec![BasicTypeEnum::IntType(self.i64)];
                     if stmt.decl.p2.is_some() {
                         param_types.push(BasicTypeEnum::IntType(self.i64));
                     }
@@ -124,7 +124,10 @@ impl<'ctx> Codegen<'ctx> {
 
         for stmt in &body {
             let line = stmt.line_number();
-            let block = self.context.append_basic_block(self.cur_func.unwrap(), "");
+            if matches!(stmt, ast2::DecoratedStmt::Callable(_)) {
+                continue;
+            }
+            let block = self.context.append_basic_block(fn_val, "");
             self.cur_line_map.insert(line, block);
         }
 
@@ -134,20 +137,42 @@ impl<'ctx> Codegen<'ctx> {
 
         while !self.func_compile_queue.is_empty() {
             let func = self.func_compile_queue.pop().unwrap();
-            self.build_func(func.block, func.decl.id.id);
+            let p1 = func.decl.p1.id;
+            let p2 = func.decl.p2.map(|id| id.id);
+            self.build_func(func.block, func.decl.id.id, p1, p2);
         }
     }
 
-    fn build_func(&mut self, body: Vec<ast2::DecoratedStmt>, id: usize) {
+    fn build_func(&mut self, body: Vec<ast2::DecoratedStmt>, id: usize, p1: usize, p2: Option<usize>) {
         self.cur_locals.clear();
         self.cur_line_map.clear();
-        self.cur_func = Some(*self.functions.get(&id).unwrap());
+        let fn_val = *self.functions.get(&id).unwrap();
+        self.cur_func = Some(fn_val);
+
+        let params = fn_val.get_params();
+
+        let entry = self.context.append_basic_block(fn_val, "");
+        self.builder.position_at_end(entry);
+        let p1alloca = self.builder.build_alloca(self.i64, "");
+        self.builder.build_store(p1alloca, params[0]);
+        self.cur_locals.insert(p1, p1alloca);
+
+        if let Some(p2) = p2 {
+            let p2alloca = self.builder.build_alloca(self.i64, "");
+            self.builder.build_store(p2alloca, params[1]);
+            self.cur_locals.insert(p2, p2alloca);
+        }
 
         for stmt in &body {
             let line = stmt.line_number();
-            let block = self.context.append_basic_block(self.cur_func.unwrap(), "");
+            if matches!(stmt, ast2::DecoratedStmt::Callable(_)) {
+                continue;
+            }
+            let block = self.context.append_basic_block(fn_val, "");
             self.cur_line_map.insert(line, block);
         }
+
+        self.builder.build_unconditional_branch(entry.get_next_basic_block().unwrap());
 
         for stmt in body {
             self.build_stmt(stmt);
@@ -190,6 +215,18 @@ impl<'ctx> Codegen<'ctx> {
     }
 
     fn build_stmt(&mut self, stmt: ast2::DecoratedStmt) {
+        match stmt {
+            ast2::DecoratedStmt::Callable(stmt) => match stmt {
+                ast2::Callable::FuncBlock(stmt) => {
+                    // println!("Pushing function block to compile queue {:?}", stmt);
+                    self.func_compile_queue.push(stmt);
+                    return;
+                }
+                _ => return,
+            }
+            _ => {}
+        }
+
         let line = stmt.line_number();
         let block = self.cur_line_map[&line];
         self.builder.position_at_end(block);
@@ -219,18 +256,12 @@ impl<'ctx> Codegen<'ctx> {
                     self.builder.build_store(ptr, val);
                 }
             }
-            ast2::DecoratedStmt::Callable(stmt) => match stmt {
-                ast2::Callable::FuncBlock(stmt) => {
-                    // println!("Pushing function block to compile queue {:?}", stmt);
-                    self.func_compile_queue.push(stmt);
-                }
-                _ => {}
-            },
             ast2::DecoratedStmt::ReturnStmt(stmt) => {
                 let val = self.build_expr(stmt.expr);
                 self.builder.build_return(Some(&val));
             }
             ast2::DecoratedStmt::GotoStmt(stmt) => {}
+            _ => unreachable!()
         }
         if let Some(next_block) = block.get_next_basic_block() {
             self.builder.build_unconditional_branch(next_block);

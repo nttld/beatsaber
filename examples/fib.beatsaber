@@ -10,5 +10,5 @@ n // still in fib if cond return is
 (n.one)..(n.two). // still in fib return is sub then fib then sub then fib then add
 
 * fib(n - 1) + fib(n - 2)
-// a is 5
+// a is 10
 a. // return is fib

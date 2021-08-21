@@ -276,7 +276,7 @@ fn parse_behaviour<'a>(
                 );
             }
             let ret = parse_behaviour(line, *behaviour, expr, ids, func_ids, src).unwrap();
-            let mut body = func_ids.get_mut(&func.unwrap());
+            let body = func_ids.get_mut(&func.unwrap());
             if body.is_none() {
                 panic!("'{}' is not a function!", ident_str);
             }
@@ -286,7 +286,7 @@ fn parse_behaviour<'a>(
                     panic!("Cannot be within an exported function: {}", name)
                 }
             }
-            Some(ret)
+            None
         }
         Behaviour::Cond {
             cond,

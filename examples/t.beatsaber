@@ -1,2 +1,6 @@
+// add is not here
+// thing is with a and b
+a.b // still in thing return is add
 // one is 1
-one // if one return is
+// two is 2
+one.two // return is thing
