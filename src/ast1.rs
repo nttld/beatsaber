@@ -84,41 +84,59 @@ pub struct FnParams {
     pub p2: Option<Span>,
 }
 
-pub fn parse(mut tokens: Lexer) -> Vec<Stmt> {
-    let mut stmts = Vec::new();
-    let mut line = 1;
-    while let Some((token, span)) = tokens.peek() {
-        match token {
-            Token::Newline => {
-                tokens.next();
+pub struct Parser1<'a> {
+    tokens: Lexer<'a>,
+    line: usize,
+}
+
+impl Iterator for Parser1<'_> {
+    type Item = Stmt;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.tokens.peek() {
+            Some((Token::Newline, _)) => {
+                self.tokens.next();
+                self.line += 1;
+                self.next()
             },
-            Token::BehaviourStart => {
-                tokens.next();
-                let sep = span;
-                let behaviour = parse_behaviour(&mut tokens);
-                stmts.push(Stmt {
-                    line,
+            Some((Token::BehaviourStart, sep)) => {
+                self.tokens.next();
+                let behaviour = parse_behaviour(&mut self.tokens);
+                Some(Stmt {
+                    line: self.line,
                     expr: None,
                     sep,
                     behaviour,
-                });
+                })
             },
-            Token::Identifier | Token::ParenLeft => {
-                let expr = parse_expr(&mut tokens);
-                let sep = tokens.monch(Token::BehaviourStart);
-                let behaviour = parse_behaviour(&mut tokens);
-                stmts.push(Stmt {
-                    line,
+            Some((Token::Identifier | Token::ParenLeft, _)) => {
+                let expr = parse_expr(&mut self.tokens);
+                let sep = self.tokens.monch(Token::BehaviourStart);
+                let behaviour = parse_behaviour(&mut self.tokens);
+                Some(Stmt {
+                    line: self.line,
                     expr: Some(expr),
                     sep,
                     behaviour,
-                });
+                })
             },
-            _ => panic!("sorry can't put that here"),
-        };
-        line += 1;
+            None => None,
+            Some((t, s)) => panic!("token `{:?}` is invalid at position `{:?}`", t, s),
+        }
     }
-    stmts
+
+    fn size_hint(&self) -> (usize, Option<usize>) {
+        let lines = self.tokens.src().split('\n').count();
+        let remaining = 1 + lines - self.line;
+        (0, Some(remaining))
+    }
+}
+
+pub fn parser(lexer: Lexer) -> Parser1 {
+    Parser1 {
+        tokens: lexer,
+        line: 1,
+    }
 }
 
 fn parse_expr(tokens: &mut Lexer) -> Expr {
@@ -133,7 +151,7 @@ fn parse_expr(tokens: &mut Lexer) -> Expr {
                     _ => Expr::Binop { lhs: Box::new(expr), op, rhs: Box::new(parse_expr(tokens)) },
                 }
             },
-            _ => dbg!(expr),
+            _ => expr,
         }
     }
 
@@ -196,12 +214,12 @@ fn parse_behaviour(tokens: &mut Lexer) -> Behaviour {
 }
 
 fn parse_assign_value(tokens: &mut Lexer) -> AssignValue {
-    let (token, span) = tokens.peek().unwrap();
-    let value = match token {
-        Token::Identifier => return AssignValue::Ops(parse_ops(tokens)),
-        Token::With => return AssignValue::Fn(parse_fn(tokens)),
-        Token::Number(n) => AssignValue::Number(span, n),
-        Token::NotHere => AssignValue::NotHere(span),
+    let value = match tokens.peek() {
+        Some((Token::Identifier, _)) => return AssignValue::Ops(parse_ops(tokens)),
+        Some((Token::With, _)) => return AssignValue::Fn(parse_fn(tokens)),
+        Some((Token::Number(n), span)) => AssignValue::Number(span, n),
+        Some((Token::NotHere, span)) => AssignValue::NotHere(span),
+        Some((Token::Newline, _)) | None => return AssignValue::Ops(Vec::new()),
         _ => panic!(),
     };
     tokens.next();
@@ -225,22 +243,23 @@ fn parse_fn(tokens: &mut Lexer) -> Fn {
 
 fn parse_ops(tokens: &mut Lexer) -> Vec<Op> {
     let mut ops = Vec::new();
-    while let Some((token, span)) = tokens.next() {
+    while let Some((token, span)) = tokens.peek() {
         match token {
             Token::Identifier => {
+                tokens.next();
+
                 let ident = span;
                 let then = match tokens.peek() {
-                    Some((Token::Then, span)) => {
-                        tokens.next();
-                        Some(span)
-                    },
-                    _ => None,
+                    Some((Token::Then, span)) => Some(span),
+                    Some((Token::Newline, _)) | None => None,
+                    _ => panic!(),
                 };
                 ops.push(Op { ident, then: then.clone() });
 
                 if then.is_none() {
                     break;
                 }
+                tokens.next();
             }
             Token::Newline => break,
             _ => panic!("expected ident or newline"),

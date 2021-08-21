@@ -3,7 +3,7 @@ use std::path::Path;
 use clap::{AppSettings, Clap};
 use anyhow::Result;
 use std::fs;
-use beatsaber::{ast1, lexer};
+use beatsaber::{ast1, ast2, lexer};
 
 #[derive(Clap)]
 #[clap(version = "0.1.0", author = "untitled")]
@@ -40,9 +40,10 @@ fn main() -> Result<()> {
 
     let src = fs::read_to_string(&args.input).unwrap();
     let lexer = lexer::lexer(&src);
-    let ast = ast1::parse(lexer);
+    let parser = ast1::parser(lexer);
+    let ast2 = ast2::parse(parser, &src);
 
-    dbg!(ast);
+    dbg!(ast2);
 
     Ok(())
 }

@@ -46,6 +46,7 @@ pub enum Token {
 pub struct Lexer<'a> {
     inner: logos::SpannedIter<'a, Token>,
     peeked: Option<Option<(Token, Span)>>,
+    src: &'a str,
 }
 
 impl<'a> Lexer<'a> {
@@ -70,12 +71,17 @@ impl<'a> Lexer<'a> {
         }
         span
     }
+
+    pub fn src(&self) -> &'a str {
+        self.src
+    }
 }
 
-pub fn lexer<'a>(input: &'a str) -> Lexer<'a> {
+pub fn lexer(src: &str) -> Lexer {
     Lexer {
-        inner: Token::lexer(input).spanned(),
+        inner: Token::lexer(src).spanned(),
         peeked: None,
+        src,
     }
 }
 

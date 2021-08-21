@@ -1,10 +1,15 @@
 use inkwell::OptimizationLevel;
+use inkwell::basic_block::BasicBlock;
 use inkwell::builder::Builder;
 use inkwell::context::Context;
-use inkwell::module::Module;
+use inkwell::module::{Linkage, Module};
 use inkwell::targets::{CodeModel, FileType, InitializationConfig, RelocMode, Target, TargetMachine, TargetTriple};
+use inkwell::types::{BasicTypeEnum, IntType};
+use inkwell::values::{BasicValueEnum, FunctionValue, IntValue, PointerValue};
+use std::collections::HashMap;
 use std::path::Path;
 use anyhow::Result;
+use crate::ast2::{self, FuncBlock};
 
 pub type OptLevel = OptimizationLevel;
 
@@ -21,21 +26,178 @@ pub struct Codegen<'ctx> {
     context: &'ctx Context,
     module: Module<'ctx>,
     builder: Builder<'ctx>,
+    i64: IntType<'ctx>,
+    func_compile_queue: Vec<FuncBlock>,
+    functions: HashMap<usize, FunctionValue<'ctx>>,
+
+    cur_locals: HashMap<usize, PointerValue<'ctx>>,
+    cur_func: Option<FunctionValue<'ctx>>,
+    cur_line_map: HashMap<usize, BasicBlock<'ctx>>,
 }
 
 impl<'ctx> Codegen<'ctx> {
-    pub fn compile(/* ast: Ast, */options: CodegenOptions) -> Result<()> {
+    pub fn compile(ast: Vec<ast2::DecoratedStmt>, options: CodegenOptions) -> Result<()> {
         let context = Context::create();
         let module = context.create_module("beat saber");
+        
         let mut codegen = Codegen {
             context: &context,
             module,
             builder: context.create_builder(),
+            i64: context.i64_type(),
+            func_compile_queue: Vec::new(),
+            functions: HashMap::new(),
+
+            cur_locals: HashMap::new(),
+            cur_func: None,
+            cur_line_map: HashMap::new(),
         };
 
-        // TODO: Compile ast
+        codegen.declare_func_children(&ast);
+        codegen.build_main(ast);
 
         codegen.write_object(options)
+    }
+
+    fn declare_func_children(&mut self, stmts: &[ast2::DecoratedStmt]) {
+        for stmt in stmts {
+            match stmt {
+                ast2::DecoratedStmt::Callable(ast2::Callable::ExternFunction(stmt)) => {
+                    let mut param_types = vec![
+                        BasicTypeEnum::IntType(self.i64),
+                        BasicTypeEnum::IntType(self.i64)
+                    ];
+                    let fn_type = self.i64.fn_type(&param_types, false);
+                    let fn_val = self.module.add_function(&stmt.name, fn_type, Some(Linkage::External));
+                    self.functions.insert(stmt.ident.id, fn_val);
+
+                }
+                ast2::DecoratedStmt::Callable(ast2::Callable::FuncBlock(stmt)) => {
+                    let mut param_types = Vec::new();
+                    if stmt.decl.p2.is_some() {
+                        param_types.push(BasicTypeEnum::IntType(self.i64));
+                    }
+                    
+                    let fn_type = self.i64.fn_type(&param_types, false);
+                    let fn_val = self.module.add_function(&stmt.decl.id.id.to_string(), fn_type, Some(Linkage::Internal));
+                    self.functions.insert(stmt.decl.id.id, fn_val);
+
+                    self.declare_func_children(&stmt.block);
+                }
+                _ => {}
+            }
+        }
+    }
+
+    fn get_local(&mut self, id: usize) -> PointerValue<'ctx> {
+        if let Some(local) = self.cur_locals.get(&id) {
+            return *local;
+        }
+
+        let builder = self.context.create_builder();
+
+        let entry = self.cur_func.unwrap().get_first_basic_block().unwrap();
+
+        match entry.get_first_instruction() {
+            Some(first_instr) => builder.position_before(&first_instr),
+            None => builder.position_at_end(entry)
+        }
+
+        let ptr = builder.build_alloca(self.i64, "");
+        self.cur_locals.insert(id, ptr);
+        ptr
+    }
+
+    fn build_main(&mut self, body: Vec<ast2::DecoratedStmt>) {
+        let fn_type = self.context.i32_type().fn_type(&[], false);
+        let fn_val = self.module.add_function("main", fn_type, Some(Linkage::External));
+        self.cur_func = Some(fn_val);
+
+        for stmt in body {
+            let line = stmt.line_number();
+            let block = self.context.append_basic_block(self.cur_func.unwrap(), "");
+            self.cur_line_map.insert(line, block);
+        }
+
+        while !self.func_compile_queue.is_empty() {
+            let func = self.func_compile_queue.pop().unwrap();
+            self.build_func(func.block, func.decl.id.id);
+        }
+    }
+
+    fn build_func(&mut self, body: Vec<ast2::DecoratedStmt>, id: usize) {
+        self.cur_locals.clear();
+        self.cur_line_map.clear();
+        self.cur_func = Some(*self.functions.get(&id).unwrap());
+
+        for stmt in body {
+            let line = stmt.line_number();
+            let block = self.context.append_basic_block(self.cur_func.unwrap(), "");
+            self.cur_line_map.insert(line, block);
+        }
+    }
+
+    fn build_expr(&mut self, expr: ast2::DecoratedExpr) -> IntValue<'ctx> {
+        match expr {
+            ast2::DecoratedExpr::CallExpr(expr) => {
+                let fn_val = self.functions[&expr.function.id];
+                let mut args = Vec::new();
+                let p1 = self.build_expr(*expr.p1);
+                args.push(BasicValueEnum::IntValue(p1));
+                if let Some(p2) = expr.p2 {
+                    args.push(BasicValueEnum::IntValue(self.build_expr(*p2)));
+                }
+                self.builder.build_call(fn_val, &args, "").try_as_basic_value().left().unwrap().into_int_value()
+            }
+            ast2::DecoratedExpr::Identifier(expr) => {
+                let ptr = self.cur_locals[&expr.id];
+                self.builder.build_load(ptr, "").into_int_value()
+            }
+        }
+    }
+
+    fn build_stmt(&mut self, stmt: ast2::DecoratedStmt) {
+        let line = stmt.line_number();
+        let block = self.cur_line_map[&line];
+        self.builder.position_at_end(block);
+        match stmt {
+            ast2::DecoratedStmt::LoadLiteralNumber(stmt) => {
+                let ptr = self.get_local(stmt.ident.id);
+                let val = self.i64.const_int(stmt.value as u64, false);
+                self.builder.build_store(ptr, val);
+            }
+            ast2::DecoratedStmt::Conditional(stmt) => {
+                let cond = self.build_expr(ast2::DecoratedExpr::Identifier(stmt.condition));
+                let then_block = self.context.append_basic_block(self.cur_func.unwrap(), "");
+                // shitty hack to get it to write this statement to the then block
+                self.cur_line_map.insert(line, then_block);
+                self.build_stmt(*stmt.success);
+                self.cur_line_map.insert(line, block);
+
+                let else_block = block.get_next_basic_block().unwrap();
+                self.builder.build_conditional_branch(cond, then_block, else_block);
+            }
+            ast2::DecoratedStmt::Assignment(stmt) => {
+                if let Some(id) = stmt.name {
+                    let ptr = self.get_local(id.id);
+                    let val = self.build_expr(stmt.value);
+                    self.builder.build_store(ptr, val);
+                }
+            }
+            ast2::DecoratedStmt::Callable(stmt) => match stmt {
+                ast2::Callable::FuncBlock(stmt) => {
+                    self.func_compile_queue.push(stmt);
+                }
+                _ => {}
+            }
+            ast2::DecoratedStmt::ReturnStmt(stmt) => {
+                let val = self.build_expr(stmt.expr);
+                self.builder.build_return(Some(&val));
+            }
+            ast2::DecoratedStmt::GotoStmt(stmt) => {
+
+            }
+        }
     }
 
     fn write_object(&self, options: CodegenOptions) -> Result<()> {
