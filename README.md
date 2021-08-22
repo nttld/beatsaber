@@ -1,10 +1,20 @@
 # beatsaber
+
 For langjam
 
-## Prerequisites: 
+## Documentation
+
+See [docs]("docs") for more info.
+
+### Prerequisites
+
 * GCC
 * LLVM 12
 * Rust
+
+### Getting Started
+
+See [getting-started]("docs/getting_started.md")
 
 ```bash
 ./build_example.sh
