@@ -1,4 +1,4 @@
-use std::path::Path;
+use std::path::PathBuf;
 
 use anyhow::Result;
 use beatsaber::codegen::{self, CodegenOptions};
@@ -29,25 +29,24 @@ struct Args {
 fn main() -> Result<()> {
     let args = Args::parse();
 
-    let output_path = args.output.clone().unwrap_or_else(|| {
-        let input_path = Path::new(&args.input);
-        input_path
-            .with_extension("o")
-            .into_os_string()
-            .into_string()
-            .unwrap()
-    });
-    let output_path = Path::new(&output_path);
+    let output_path = PathBuf::from(args.output.as_ref().unwrap_or(&args.input));
+    let object_path = output_path.with_extension("o");
 
     let src = fs::read_to_string(&args.input).unwrap();
     let lexer = lexer::lexer(&src, &args.input);
     let parser = ast1::parser(lexer);
     let ast2 = ast2::parse(parser);
     let options = CodegenOptions {
-        output: Path::new(output_path),
-        optimization: codegen::OptLevel::Aggressive,
-        pic: true,
-        target: None,
+        output: object_path.as_path(),
+        optimization: match args.optimization {
+            0 => codegen::OptLevel::None,
+            1 => codegen::OptLevel::Less,
+            2 => codegen::OptLevel::Default,
+            3 => codegen::OptLevel::Aggressive,
+            _ => panic!("Invalid optimization level"),
+        },
+        pic: args.pic,
+        target: args.target,
     };
     dbg!(&ast2);
     codegen::Codegen::compile(ast2, options)?;

@@ -1,20 +1,20 @@
 // memory_size is 100
 // one is 1
-// calloc is not here
+// calloc is not here and is big
 one.memory_size // memory is calloc
 // data_ptr is 0
 // zero is 0
 
 // inc is not here
 // dec is not here
-// add is not here
-// storeb is not here
+// add is not here and is big
+// storeb is not here and is big
 // deref is not here
 // sizeptr is not here
 // readfile is not here
 // not is not here
-// equal is not here
-// equalchar is not here
+// equal is not here and is big
+// equalchar is not here and is big
 
 // getchar is not here
 // putchar is not here
@@ -44,7 +44,7 @@ v. // still in inc_ptr return is inc
 // dec_ptr is with v
 v. // still in dec_ptr return is dec
 
-memory.data_ptr.(unused.) // parse_in is with unused add then getchar then storeb
+(memory.data_ptr).(unused.) // parse_in is with unused add then getchar then storeb
 (memory.data_ptr).. // parse_out is with unused add then deref then putchar
 
 * readfile(*(argv + sizeof(char*)))

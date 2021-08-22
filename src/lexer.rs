@@ -25,6 +25,8 @@ pub enum Token {
     NotHere,
     #[token("but is in")]
     ButIsIn,
+    #[token("and is big")]
+    AndIsBig,
     #[token("return")]
     Return,
     #[token("(")]

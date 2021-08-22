@@ -165,10 +165,12 @@ impl<'ctx> Codegen<'ctx> {
             match stmt {
                 ast2::DecoratedStmt::Callable(ast2::Callable::ExternFunction(stmt)) => {
                     self.function_captures.insert(stmt.ident.id, Vec::new());
-                    let param_types = vec![
-                        BasicTypeEnum::IntType(self.i64),
-                        BasicTypeEnum::IntType(self.i64),
+                    let mut param_types = vec![
+                        BasicTypeEnum::IntType(self.i64)
                     ];
+                    if stmt.two_param {
+                        param_types.push(BasicTypeEnum::IntType(self.i64));
+                    }
                     let fn_type = self.i64.fn_type(&param_types, false);
                     let fn_val =
                         self.module
@@ -278,16 +280,16 @@ impl<'ctx> Codegen<'ctx> {
             self.build_func(func.block, func.decl.id.id, p1, p2);
         }
 
-        // if let Some(func) = self.cur_func {
-        //     if func.verify(true) {
-        //     } else {
-        //         unsafe {
-        //             func.delete();
-        //         }
+        if let Some(func) = self.cur_func {
+            if func.verify(true) {
+            } else {
+                unsafe {
+                    func.delete();
+                }
 
-        //         panic!("stack bad");
-        //     }
-        // }
+                panic!("stack bad");
+            }
+        }
     }
 
     fn build_func(
@@ -346,16 +348,16 @@ impl<'ctx> Codegen<'ctx> {
             self.build_stmt(stmt, None);
         }
 
-        // if let Some(func) = self.cur_func {
-        //     if func.verify(true) {
-        //     } else {
-        //         unsafe {
-        //             func.delete();
-        //         }
+        if let Some(func) = self.cur_func {
+            if func.verify(true) {
+            } else {
+                unsafe {
+                    func.delete();
+                }
 
-        //         panic!("stack bad");
-        //     }
-        // }
+                panic!("stack bad");
+            }
+        }
     }
 
     fn build_expr(&mut self, expr: ast2::DecoratedExpr) -> IntValue<'ctx> {

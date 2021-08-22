@@ -67,7 +67,7 @@ uintptr_t xor(uintptr_t x, uintptr_t y) {
 }
 
 uintptr_t bsprint(uintptr_t a) {
-    return printf("%i", a);
+    return printf("%li", a);
 }
 
 uintptr_t putsnl(uintptr_t ptr) {

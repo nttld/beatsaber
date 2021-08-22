@@ -62,6 +62,7 @@ pub struct NotHere {
     pub not_here: Span,
     pub but_is_in: Option<Span>,
     pub ident: Option<Span>,
+    pub and_is_big: Option<Span>,
 }
 
 #[derive(Debug)]
@@ -280,17 +281,35 @@ fn parse_not_here(tokens: &mut Lexer) -> NotHere {
         Some((Token::ButIsIn, but_is_in)) => {
             tokens.next(); // Skip ButIsIn
             let ident = tokens.monch(Token::Identifier);
+            let and_is_big = match tokens.peek() {
+                Some((Token::AndIsBig, sp)) => {
+                    tokens.next();
+                    Some(sp)
+                }
+                _ => None,
+            };
             NotHere {
                 not_here,
                 but_is_in: Some(but_is_in),
                 ident: Some(ident),
+                and_is_big,
             }
         }
-        _ => NotHere {
-            not_here,
-            but_is_in: None,
-            ident: None,
-        },
+        _ => {
+            let and_is_big = match tokens.peek() {
+                Some((Token::AndIsBig, sp)) => {
+                    tokens.next();
+                    Some(sp)
+                }
+                _ => None,
+            };
+            NotHere {
+                not_here,
+                but_is_in: None,
+                ident: None,
+                and_is_big,
+            }
+        }
     }
 }
 

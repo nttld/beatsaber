@@ -50,7 +50,6 @@ pub struct FuncDecl {
     pub p2: Option<Identifier>,
 }
 
-// n.b // if a return is add
 #[derive(Clone, Debug)]
 pub struct Conditional {
     pub condition: Identifier,
@@ -70,6 +69,7 @@ pub struct ExternFunction {
     pub name: String,
     pub ident: Identifier,
     pub module: Option<String>,
+    pub two_param: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -217,6 +217,7 @@ fn parse_behaviour<'a>(
                             name: id.unwrap().to_owned(),
                             ident,
                             module: not_here.ident.map(|value| src[value].to_owned()),
+                            two_param: not_here.and_is_big.is_some(),
                         }),
                     );
                     None
@@ -585,10 +586,3 @@ fn zip_ops_with_expr<'a>(
     }
     expr
 }
-
-// fn parse(stmts: Vec<Stmt>) -> Vec<DecoratedAst> {
-//     // Walk this vector
-//     // Create funcblocks/calls as needed
-//     // Tada!
-
-// }
