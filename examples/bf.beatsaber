@@ -72,7 +72,7 @@ loop_start1 // still in parse_lstart goto is
 
 // parse_lend is with new_ip
 // still in parse_lend rbcounter is 0
-* 
+
 // still in parse_lend loop_start2 is 77
 new_ip. // still in parse_lend val is deref
 val.lend // still in parse_lend eq is equalchar
