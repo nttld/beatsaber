@@ -1,4 +1,7 @@
 use logos::{Logos, Span};
+use std::fmt;
+
+use crate::error::{Diagnostic, Label, Reporter};
 
 #[derive(Logos, Debug, PartialEq, Clone, Copy)]
 pub enum Token {
@@ -20,6 +23,8 @@ pub enum Token {
     Discard,
     #[token("not here")]
     NotHere,
+    #[token("but is in")]
+    ButIsIn,
     #[token("return")]
     Return,
     #[token("(")]
@@ -35,7 +40,10 @@ pub enum Token {
     #[regex(r"[A-Za-z_][A-Za-z_0-9]*")]
     Identifier,
     #[regex(r"\d+", |lex| lex.slice().parse())]
+    #[regex("'.'", |lex| usize::from(lex.slice().as_bytes()[1]))]
     Number(usize),
+    #[regex(r#""(\\.|[^"\\])*""#)]
+    StringLiteral,
 
     #[regex(r"[ \t\r]", logos::skip)]
     #[regex(r"\*.*", logos::skip)]
@@ -46,17 +54,22 @@ pub enum Token {
 pub struct Lexer<'a> {
     inner: logos::SpannedIter<'a, Token>,
     peeked: Option<Option<(Token, Span)>>,
+    reporter: Reporter<'a>,
     src: &'a str,
 }
 
-impl<'a> Lexer<'a> {
-    pub fn next(&mut self) -> Option<(Token, Span)> {
+impl Iterator for Lexer<'_> {
+    type Item = (Token, Span);
+
+    fn next(&mut self) -> Option<Self::Item> {
         if let Some(next) = self.peeked.take() {
             return next;
         }
         self.inner.next()
     }
+}
 
+impl<'a> Lexer<'a> {
     pub fn peek(&mut self) -> Option<(Token, Span)> {
         if let Some(peeked) = &mut self.peeked {
             return peeked.clone();
@@ -67,12 +80,18 @@ impl<'a> Lexer<'a> {
     pub fn monch(&mut self, token: Token) -> Span {
         let (t, span) = self.next().unwrap();
         if t != token {
-            panic!(
-                "not the right thing there! Expected: {:?} but got: {:?} ({:?})",
-                token, t, span
-            );
+            self.reporter.report_and_exit(
+                &Diagnostic::error()
+                    .with_message("unexpected token")
+                    .with_labels(vec![Label::primary((), span)
+                        .with_message(format!("expected token `{}` here", token))]),
+            )
         }
         span
+    }
+
+    pub fn reporter(&self) -> Reporter<'a> {
+        self.reporter.clone()
     }
 
     pub fn src(&self) -> &'a str {
@@ -80,11 +99,39 @@ impl<'a> Lexer<'a> {
     }
 }
 
-pub fn lexer(src: &str) -> Lexer {
+pub fn lexer<'a>(src: &'a str, file: &'a str) -> Lexer<'a> {
     Lexer {
         inner: Token::lexer(src).spanned(),
         peeked: None,
+        reporter: Reporter::new(src, file),
         src,
+    }
+}
+
+impl fmt::Display for Token {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let s = match self {
+            Self::Operator => ".",
+            Self::BehaviourStart => "//",
+            Self::Is => "is",
+            Self::Then => "then",
+            Self::With => "with",
+            Self::If => "if",
+            Self::Goto => "goto",
+            Self::Discard => "<discard>",
+            Self::NotHere => "not here",
+            Self::Return => "return",
+            Self::ParenLeft => "(",
+            Self::ParenRight => ")",
+            Self::StillIn => "still in",
+            Self::And => "and",
+            Self::Newline => "<newline>",
+            Self::Identifier => "<identifier>",
+            Self::Number(_) => "<number>",
+            Self::StringLiteral => "<string>",
+            _ => "<unknown>",
+        };
+        f.write_str(s)
     }
 }
 

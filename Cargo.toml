@@ -13,3 +13,5 @@ inkwell = { git = "https://github.com/TheDan64/inkwell", branch = "master", feat
 llvm-sys = "120"
 anyhow = "1.0"
 clap = "3.0.0-beta.4"
+codespan-reporting = "0.11"
+unescape = "0.1"

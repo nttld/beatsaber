@@ -1,10 +1,7 @@
 use crate::ast1::{AssignTarget, AssignValue, Behaviour, Expr, Op, Parser1};
+use crate::error::{Diagnostic, Label, Reporter};
 use logos::Span;
 use std::collections::HashMap;
-
-// Lets do something useful with it; like binding identifiers to operations
-// CallExprs
-// FunctionBlocks
 
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct Identifier {
@@ -39,6 +36,13 @@ pub struct LoadLiteralNumber {
 }
 
 #[derive(Clone, Debug)]
+pub struct LoadLiteralString {
+    pub line: usize,
+    pub ident: Identifier,
+    pub value: String,
+}
+
+#[derive(Clone, Debug)]
 pub struct FuncDecl {
     pub line: usize,
     pub id: Identifier,
@@ -65,6 +69,7 @@ pub struct ExternFunction {
     pub line: usize,
     pub name: String,
     pub ident: Identifier,
+    pub module: Option<String>,
 }
 
 #[derive(Clone, Debug)]
@@ -88,6 +93,7 @@ pub enum Callable {
 #[derive(Clone, Debug)]
 pub enum DecoratedStmt {
     LoadLiteralNumber(LoadLiteralNumber),
+    LoadLiteralString(LoadLiteralString),
     Callable(Callable),
     Conditional(Conditional),
     Assignment(Assignment),
@@ -95,10 +101,14 @@ pub enum DecoratedStmt {
     GotoStmt(GotoStmt),
 }
 
+pub const ARGC_IDENT: Identifier = Identifier { id: usize::MAX };
+pub const ARGV_IDENT: Identifier = Identifier { id: usize::MAX - 1 };
+
 impl DecoratedStmt {
     pub fn line_number(&self) -> usize {
         match self {
             DecoratedStmt::LoadLiteralNumber(stmt) => stmt.line,
+            DecoratedStmt::LoadLiteralString(stmt) => stmt.line,
             DecoratedStmt::Callable(c) => match c {
                 Callable::FuncBlock(FuncBlock { decl, .. }) => decl.line,
                 Callable::ExternFunction(ExternFunction { line, .. }) => *line,
@@ -114,12 +124,18 @@ impl DecoratedStmt {
 fn create_identifier<'a>(
     ids: &mut HashMap<&'a str, Identifier>,
     id: Option<&'a str>,
+    id_span: Option<Span>,
+    reporter: &Reporter<'a>,
 ) -> Identifier {
     let identifier = id.unwrap();
+    let span = id_span.unwrap();
     if ids.contains_key(identifier) {
-        panic!(
-            "Cannot create a new identifier for name: '{}' because it already exists!",
-            identifier
+        reporter.report_and_exit(
+            &Diagnostic::error()
+                .with_message("duplicate identifier")
+                .with_labels(vec![
+                    Label::primary((), span).with_message("this identifier is already declared")
+                ]),
         );
     }
     let ident = Identifier { id: ids.len() };
@@ -129,7 +145,6 @@ fn create_identifier<'a>(
 
 fn create_or_shadow_ident_opt<'a>(
     ids: &mut HashMap<&'a str, Identifier>,
-    src: &'a str,
     id: Option<&'a str>,
 ) -> Option<Identifier> {
     let len = ids.len();
@@ -152,138 +167,218 @@ fn parse_behaviour<'a>(
     expr: Option<Expr>,
     ids: &mut HashMap<&'a str, Identifier>,
     func_ids: &mut HashMap<Identifier, Callable>,
-    src: &'a str,
+    parser: &Parser1<'a>,
 ) -> Option<DecoratedStmt> {
+    let src = parser.src();
     match behaviour {
-        Behaviour::Assign { target, value, .. } => {
-            match target {
-                AssignTarget::Ident(_) | AssignTarget::Discard(_) => {
-                    let id = match target {
-                        AssignTarget::Ident(span) => Some(&src[span]),
-                        _ => None,
-                    };
-                    match value {
-                        AssignValue::Number(_, n) => {
-                            // Must have an identifier for loading literals
-                            Some(DecoratedStmt::LoadLiteralNumber(LoadLiteralNumber {
-                                line,
-                                ident: create_identifier(ids, id),
-                                value: n,
-                            }))
-                        }
-                        AssignValue::NotHere(_) => {
-                            // Must have an identifier for exported functions
-                            let ident = create_identifier(ids, id);
-                            func_ids.insert(
-                                ident,
-                                Callable::ExternFunction(ExternFunction {
-                                    line,
-                                    name: id.unwrap().to_owned(),
-                                    ident,
-                                }),
-                            );
-                            None
-                        }
-                        AssignValue::Ops(ops) => {
-                            // Made up of CallExprs
-                            // Each op needs to match the expression op
-                            let ident = create_or_shadow_ident_opt(ids, src, id);
+        Behaviour::Assign {
+            target: target @ (AssignTarget::Ident(_) | AssignTarget::Discard(_)),
+            value,
+            ..
+        } => {
+            let (id, id_span) = match target {
+                AssignTarget::Ident(span) => (Some(&src[span.clone()]), Some(span)),
+                _ => (None, None),
+            };
+            match value {
+                AssignValue::Number(_, n) => {
+                    // Must have an identifier for loading literals
+                    Some(DecoratedStmt::LoadLiteralNumber(LoadLiteralNumber {
+                        line,
+                        ident: create_or_shadow_ident(ids, src, id_span.unwrap()),
+                        value: n,
+                    }))
+                }
+                AssignValue::String(str_span) => {
+                    // Must have an identifier for loading literals
+                    Some(DecoratedStmt::LoadLiteralString(LoadLiteralString {
+                        line,
+                        ident: create_or_shadow_ident(ids, src, id_span.unwrap()),
+                        value: unescape::unescape(&src[(str_span.start + 1)..(str_span.end - 1)])
+                            .unwrap_or_else(|| {
+                                parser.reporter().report_and_exit(
+                                    &Diagnostic::error()
+                                        .with_message("invalid string literal")
+                                        .with_labels(vec![Label::primary((), str_span)
+                                            .with_message(
+                                                "this literal contains illegal escape sequences",
+                                            )]),
+                                )
+                            }),
+                    }))
+                }
+                AssignValue::NotHere(not_here) => {
+                    // Must have an identifier for exported functions
+                    let ident = create_identifier(ids, id, id_span, &parser.reporter());
+                    func_ids.insert(
+                        ident,
+                        Callable::ExternFunction(ExternFunction {
+                            line,
+                            name: id.unwrap().to_owned(),
+                            ident,
+                            module: not_here.ident.map(|value| src[value].to_owned()),
+                        }),
+                    );
+                    None
+                }
+                AssignValue::Ops(ops) => {
+                    // Made up of CallExprs
+                    // Each op needs to match the expression op
+                    let ident = create_or_shadow_ident_opt(ids, id);
 
-                            Some(DecoratedStmt::Assignment(Assignment {
-                                line,
-                                name: ident,
-                                value: zip_ops_with_expr(&expr.unwrap(), &ops, ids, src),
-                            }))
-                        }
-                        AssignValue::Fn(f) => {
-                            // Create a function declaration for this, make a function definition for this, add to function collection
-                            // All functions will be added to the output vector before being returned
-                            let ident = create_identifier(ids, id);
-                            let p1 = create_or_shadow_ident(ids, src, f.params.p1);
-                            let p2 =
-                                create_or_shadow_ident_opt(ids, src, f.params.p2.map(|v| &src[v]));
-                            let mut block = FuncBlock {
-                                decl: FuncDecl {
-                                    line,
-                                    id: ident,
-                                    p1,
-                                    p2,
-                                },
-                                block: Vec::new(),
-                            };
-                            if let Some(expr) = &expr {
-                                block.block.push(DecoratedStmt::Assignment(Assignment {
-                                    line,
-                                    name: None,
-                                    value: zip_ops_with_expr(expr, &f.ops, ids, src),
-                                }));
-                            }
-                            func_ids.insert(ident, Callable::FuncBlock(block));
-                            // This should NOT be added right away, since it will not hold all of the potential blocks.
-                            // See func_ids instead.
-                            None
-                        }
-                    }
-                }
-                AssignTarget::Goto(_) => {
-                    if expr.is_none() {
-                        panic!(
-                            "Goto statement on line: {} cannot have no expression!",
-                            line
-                        );
-                    }
-                    match value {
-                        AssignValue::Ops(ops) => Some(DecoratedStmt::GotoStmt(GotoStmt {
-                            line,
-                            target: zip_ops_with_expr(&expr.unwrap(), &ops, ids, src),
-                        })),
-                        _ => panic!("Goto statement on line: {} must have operators only!", line),
-                    }
-                }
-                AssignTarget::Return(_) => {
-                    if expr.is_none() {
-                        panic!(
-                            "Return statement on line: {} cannot have no expression!",
-                            line
-                        );
-                    }
-                    match value {
-                        AssignValue::Ops(ops) => Some(DecoratedStmt::ReturnStmt(ReturnStmt {
-                            line,
-                            expr: zip_ops_with_expr(&expr.unwrap(), &ops, ids, src),
-                        })),
-                        _ => panic!(
-                            "Return statement on line: {} must have operators only!",
-                            line
+                    Some(DecoratedStmt::Assignment(Assignment {
+                        line,
+                        name: ident,
+                        value: zip_ops_with_expr(
+                            &expr.unwrap(),
+                            &ops,
+                            ids,
+                            func_ids,
+                            src,
+                            &parser.reporter(),
                         ),
+                    }))
+                }
+                AssignValue::Fn(f) => {
+                    // Create a function declaration for this, make a function definition for this, add to function collection
+                    // All functions will be added to the output vector before being returned
+                    let ident = create_identifier(ids, id, id_span, &parser.reporter());
+                    let p1 = create_or_shadow_ident(ids, src, f.params.p1);
+                    let p2 = create_or_shadow_ident_opt(ids, f.params.p2.map(|v| &src[v]));
+                    let mut block = FuncBlock {
+                        decl: FuncDecl {
+                            line,
+                            id: ident,
+                            p1,
+                            p2,
+                        },
+                        block: Vec::new(),
+                    };
+                    if let Some(expr) = &expr {
+                        block.block.push(DecoratedStmt::Assignment(Assignment {
+                            line,
+                            name: None,
+                            value: zip_ops_with_expr(
+                                expr,
+                                &f.ops,
+                                ids,
+                                func_ids,
+                                src,
+                                &parser.reporter(),
+                            ),
+                        }));
                     }
+                    func_ids.insert(ident, Callable::FuncBlock(block));
+                    // This should NOT be added right away, since it will not hold all of the potential blocks.
+                    // See func_ids instead.
+                    None
                 }
             }
         }
+        Behaviour::Assign {
+            target: AssignTarget::Goto(span),
+            value,
+            ..
+        } => {
+            if expr.is_none() {
+                parser.reporter().report_and_exit(
+                    &Diagnostic::error()
+                        .with_message("goto without expression")
+                        .with_labels(vec![Label::primary((), span)
+                            .with_message("this goto is missing a target expression")]),
+                );
+            }
+            match value {
+                AssignValue::Ops(ops) => Some(DecoratedStmt::GotoStmt(GotoStmt {
+                    line,
+                    target: zip_ops_with_expr(
+                        &expr.unwrap(),
+                        &ops,
+                        ids,
+                        func_ids,
+                        src,
+                        &parser.reporter(),
+                    ),
+                })),
+                _ => parser.reporter().report_and_exit(
+                    &Diagnostic::error()
+                        .with_message("goto with invalid assignment")
+                        .with_labels(vec![Label::primary((), span).with_message(
+                            "this goto is assigned something other than an expression",
+                        )]),
+                ),
+            }
+        }
+        Behaviour::Assign {
+            target: AssignTarget::Return(span),
+            value,
+            ..
+        } => {
+            if expr.is_none() {
+                parser.reporter().report_and_exit(
+                    &Diagnostic::error()
+                        .with_message("return without expression")
+                        .with_labels(vec![Label::primary((), span)
+                            .with_message("this return is missing a value expression")]),
+                );
+            }
+            match value {
+                AssignValue::Ops(ops) => Some(DecoratedStmt::ReturnStmt(ReturnStmt {
+                    line,
+                    expr: zip_ops_with_expr(
+                        &expr.unwrap(),
+                        &ops,
+                        ids,
+                        func_ids,
+                        src,
+                        &parser.reporter(),
+                    ),
+                })),
+                _ => parser.reporter().report_and_exit(
+                    &Diagnostic::error()
+                        .with_message("return with invalid assignment")
+                        .with_labels(vec![Label::primary((), span).with_message(
+                            "this return is assigned something other than an expression",
+                        )]),
+                ),
+            }
+        }
         Behaviour::StillIn {
-            ident,
-            behaviour,
-            still_in,
+            ident, behaviour, ..
         } => {
             // Recursive parse behaviour
             // Map ident to correct function
-            let ident_str = &src[ident];
+            let ident_str = &src[ident.clone()];
             let func = ids.get(ident_str).cloned();
             if func.is_none() {
-                panic!(
-                    "'{}' is not a valid identifier for '{}'!",
-                    ident_str, &src[still_in]
+                parser.reporter().report_and_exit(
+                    &Diagnostic::error()
+                        .with_message("unbound function body")
+                        .with_labels(vec![
+                            Label::primary((), ident).with_message("this function is not declared")
+                        ]),
                 );
             }
-            let ret = parse_behaviour(line, *behaviour, expr, ids, func_ids, src).unwrap();
+            let ret = parse_behaviour(line, *behaviour, expr, ids, func_ids, parser).unwrap();
             let body = func_ids.get_mut(&func.unwrap());
             if body.is_none() {
-                panic!("'{}' is not a function!", ident_str);
+                parser.reporter().report_and_exit(
+                    &Diagnostic::error()
+                        .with_message("function body bound to variable")
+                        .with_labels(vec![Label::primary((), ident)
+                            .with_message("this is a variable and not a function")]),
+                );
             }
             match body.unwrap() {
                 Callable::FuncBlock(FuncBlock { block, .. }) => block.push(ret),
-                Callable::ExternFunction(ExternFunction { name, .. }) => {
-                    panic!("Cannot be within an exported function: {}", name)
+                Callable::ExternFunction(ExternFunction { .. }) => {
+                    parser.reporter().report_and_exit(
+                        &Diagnostic::error()
+                            .with_message("function body bound to external function")
+                            .with_labels(vec![
+                                Label::primary((), ident).with_message("this function is external")
+                            ]),
+                    )
                 }
             }
             None
@@ -295,18 +390,30 @@ fn parse_behaviour<'a>(
         } => {
             // Recursive parse behaviour
             // Map cond to identifier
-            let ident_str = &src[cond];
+            let ident_str = &src[cond.clone()];
             let ident = ids.get(ident_str).unwrap_or_else(|| {
-                panic!(
-                    "'{}' is not a valid identifier for '{}'!",
-                    ident_str, &src[if_]
-                )
+                parser.reporter().report_and_exit(
+                    &Diagnostic::error()
+                        .with_message("unbound condition")
+                        .with_labels(vec![Label::primary((), cond.clone())
+                            .with_message("this variable is not defined")]),
+                );
             });
             Some(DecoratedStmt::Conditional(Conditional {
                 condition: *ident,
                 success: Box::new(
-                    parse_behaviour(line, *behaviour, expr, ids, func_ids, src).unwrap_or_else(
-                        || panic!("If statements cannot be used on function declarations!"),
+                    parse_behaviour(line, *behaviour, expr, ids, func_ids, parser).unwrap_or_else(
+                        || {
+                            parser.reporter().report_and_exit(
+                                &Diagnostic::error()
+                                    .with_message("conditional function declaration")
+                                    .with_labels(vec![Label::primary((), (if_.start)..(cond.end))
+                                        .with_message("conditional statement here")])
+                                    .with_notes(vec![
+                                        "functions cannot be conditionally declared".to_string()
+                                    ]),
+                            )
+                        },
                     ),
                 ),
             }))
@@ -314,18 +421,21 @@ fn parse_behaviour<'a>(
     }
 }
 
-pub fn parse(stmts: Parser1, src: &str) -> Vec<DecoratedStmt> {
+pub fn parse(mut parser: Parser1) -> Vec<DecoratedStmt> {
     let mut outp = Vec::new();
     let mut ids = HashMap::new();
+    ids.insert("argc", ARGC_IDENT);
+    ids.insert("argv", ARGV_IDENT);
+
     let mut func_ids = HashMap::new();
-    for stmt in stmts {
+    while let Some(stmt) = parser.next() {
         let val = parse_behaviour(
             stmt.line,
             stmt.behaviour,
             stmt.expr,
             &mut ids,
             &mut func_ids,
-            src,
+            &parser,
         );
         if let Some(val) = val {
             outp.push(val);
@@ -338,25 +448,57 @@ pub fn parse(stmts: Parser1, src: &str) -> Vec<DecoratedStmt> {
 fn zip_ops_with_expr<'a>(
     expr: &Expr,
     ops: &[Op],
-    ids: &mut HashMap<&'a str, Identifier>,
+    ids: &HashMap<&'a str, Identifier>,
+    fn_ids: &HashMap<Identifier, Callable>,
     src: &'a str,
+    reporter: &Reporter<'a>,
 ) -> DecoratedExpr {
     fn inner<'a, 'ops>(
         expr: &Expr,
         ops: &'ops [Op],
-        ids: &mut HashMap<&'a str, Identifier>,
+        ids: &HashMap<&'a str, Identifier>,
+        fn_ids: &HashMap<Identifier, Callable>,
         src: &'a str,
+        reporter: &Reporter<'a>,
     ) -> (DecoratedExpr, &'ops [Op]) {
         match expr {
-            Expr::Binop { lhs, rhs, .. } => {
-                let (lhs, ops) = inner(lhs, ops, ids, src);
-                let (rhs, ops) = inner(rhs, ops, ids, src);
-                let (op, ops) = ops.split_first().unwrap();
-
-                let key_string = &src[op.ident.clone()];
-                let ident = ids.get(key_string).unwrap_or_else(|| {
-                    panic!("Could not find identifier for binary op: '{}'", key_string)
+            Expr::Binop { lhs, rhs, op: dot } => {
+                let (lhs, ops) = inner(lhs, ops, ids, fn_ids, src, reporter);
+                let (rhs, ops) = inner(rhs, ops, ids, fn_ids, src, reporter);
+                let (op, ops) = ops.split_first().unwrap_or_else(|| {
+                    reporter.report_and_exit(
+                        &Diagnostic::error()
+                            .with_message("unbound operation")
+                            .with_labels(vec![Label::primary((), dot.clone())
+                                .with_message("this operation is not bound to any function")]),
+                    )
                 });
+
+                let ident = ids.get(&src[op.ident.clone()]).unwrap_or_else(|| {
+                    reporter.report_and_exit(
+                        &Diagnostic::error()
+                            .with_message("unbound operation")
+                            .with_labels(vec![
+                                Label::primary((), op.ident.clone())
+                                    .with_message("this function is not defined"),
+                                Label::secondary((), dot.clone())
+                                    .with_message("for this operation"),
+                            ]),
+                    )
+                });
+                if !fn_ids.contains_key(ident) {
+                    reporter.report_and_exit(
+                        &Diagnostic::error()
+                            .with_message("operation bound to variable")
+                            .with_labels(vec![
+                                Label::primary((), op.ident.clone())
+                                    .with_message("this is a variable and not a function"),
+                                Label::secondary((), dot.clone())
+                                    .with_message("for this operation"),
+                            ]),
+                    );
+                }
+
                 (
                     DecoratedExpr::CallExpr(CallExpr {
                         function: *ident,
@@ -366,13 +508,42 @@ fn zip_ops_with_expr<'a>(
                     ops,
                 )
             }
-            Expr::Unop { expr, .. } => {
-                let (expr, ops) = inner(expr, ops, ids, src);
-                let (op, ops) = ops.split_first().unwrap();
-                let key_string = &src[op.ident.clone()];
-                let ident = ids.get(key_string).unwrap_or_else(|| {
-                    panic!("Could not find identifier for unary op: '{}'", key_string)
+            Expr::Unop { expr, op: dot } => {
+                let (expr, ops) = inner(expr, ops, ids, fn_ids, src, reporter);
+                let (op, ops) = ops.split_first().unwrap_or_else(|| {
+                    reporter.report_and_exit(
+                        &Diagnostic::error()
+                            .with_message("unbound operation")
+                            .with_labels(vec![Label::primary((), dot.clone())
+                                .with_message("this operation is not bound to any function")]),
+                    )
                 });
+
+                let ident = ids.get(&src[op.ident.clone()]).unwrap_or_else(|| {
+                    reporter.report_and_exit(
+                        &Diagnostic::error()
+                            .with_message("unbound operation")
+                            .with_labels(vec![
+                                Label::primary((), op.ident.clone())
+                                    .with_message("this function is not defined"),
+                                Label::secondary((), dot.clone())
+                                    .with_message("for this operation"),
+                            ]),
+                    )
+                });
+                if !fn_ids.contains_key(ident) {
+                    reporter.report_and_exit(
+                        &Diagnostic::error()
+                            .with_message("operation bound to variable")
+                            .with_labels(vec![
+                                Label::primary((), op.ident.clone())
+                                    .with_message("this is a variable and not a function"),
+                                Label::secondary((), dot.clone())
+                                    .with_message("for this operation"),
+                            ]),
+                    );
+                }
+
                 (
                     DecoratedExpr::CallExpr(CallExpr {
                         function: *ident,
@@ -382,13 +553,14 @@ fn zip_ops_with_expr<'a>(
                     ops,
                 )
             }
-            Expr::Paren { expr, .. } => inner(expr, ops, ids, src),
+            Expr::Paren { expr, .. } => inner(expr, ops, ids, fn_ids, src, reporter),
             Expr::Ident(span) => {
-                let key_string = &src[span.clone()];
-                let ident = ids.get(key_string).unwrap_or_else(|| {
-                    panic!(
-                        "Could not find identifier for single identifier: '{}'",
-                        key_string
+                let ident = ids.get(&src[span.clone()]).unwrap_or_else(|| {
+                    reporter.report_and_exit(
+                        &Diagnostic::error()
+                            .with_message("unbound identifier")
+                            .with_labels(vec![Label::primary((), span.clone())
+                                .with_message("this variable is not defined")]),
                     )
                 });
                 (DecoratedExpr::Identifier(*ident), ops)
@@ -396,9 +568,20 @@ fn zip_ops_with_expr<'a>(
         }
     }
 
-    let (expr, ops) = inner(expr, ops, ids, src);
+    let (expr, ops) = inner(expr, ops, ids, fn_ids, src, reporter);
     if !ops.is_empty() {
-        panic!("Too many operations for the expression provided!");
+        reporter.report_and_exit(
+            &Diagnostic::error()
+                .with_message("extranuous operations")
+                .with_labels(
+                    ops.iter()
+                        .map(|op| {
+                            Label::primary((), op.ident.clone())
+                                .with_message("this operation is not bound to anything")
+                        })
+                        .collect(),
+                ),
+        )
     }
     expr
 }

@@ -40,17 +40,17 @@ fn main() -> Result<()> {
     let output_path = Path::new(&output_path);
 
     let src = fs::read_to_string(&args.input).unwrap();
-    let lexer = lexer::lexer(&src);
+    let lexer = lexer::lexer(&src, &args.input);
     let parser = ast1::parser(lexer);
-    let ast2 = ast2::parse(parser, &src);
+    let ast2 = ast2::parse(parser);
     let options = CodegenOptions {
         output: Path::new(output_path),
         optimization: codegen::OptLevel::Aggressive,
         pic: true,
         target: None,
     };
-    // dbg!(&ast2);
-    let codegen = codegen::Codegen::compile(ast2, options)?;
+    dbg!(&ast2);
+    codegen::Codegen::compile(ast2, options)?;
 
     Ok(())
 }

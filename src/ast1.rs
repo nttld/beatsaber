@@ -1,5 +1,6 @@
 use logos::Span;
 
+use crate::error::{Diagnostic, Label, Reporter};
 use crate::lexer::{Lexer, Token};
 
 #[derive(Debug)]
@@ -57,11 +58,19 @@ pub enum AssignTarget {
 }
 
 #[derive(Debug)]
+pub struct NotHere {
+    pub not_here: Span,
+    pub but_is_in: Option<Span>,
+    pub ident: Option<Span>,
+}
+
+#[derive(Debug)]
 pub enum AssignValue {
     Ops(Vec<Op>),
     Fn(Fn),
     Number(Span, usize),
-    NotHere(Span),
+    String(Span),
+    NotHere(NotHere),
 }
 
 #[derive(Debug)]
@@ -121,7 +130,11 @@ impl Iterator for Parser1<'_> {
                 })
             }
             None => None,
-            Some((t, s)) => panic!("token `{:?}` is invalid at position `{:?}`", t, s),
+            Some((t, s)) => self.tokens.reporter().report_and_exit(
+                &Diagnostic::error()
+                    .with_message(format!("unexpected token `{}` at statement start", t))
+                    .with_labels(vec![Label::primary((), s).with_message("not valid here")]),
+            ),
         }
     }
 
@@ -129,6 +142,16 @@ impl Iterator for Parser1<'_> {
         let lines = self.tokens.src().split('\n').count();
         let remaining = 1 + lines - self.line;
         (0, Some(remaining))
+    }
+}
+
+impl<'a> Parser1<'a> {
+    pub fn reporter(&self) -> Reporter<'a> {
+        self.tokens.reporter()
+    }
+
+    pub fn src(&self) -> &'a str {
+        self.tokens.src()
     }
 }
 
@@ -182,7 +205,11 @@ fn parse_expr(tokens: &mut Lexer) -> Expr {
                 tokens,
             )
         }
-        t => panic!("{:?}", t),
+        (t, s) => tokens.reporter().report_and_exit(
+            &Diagnostic::bug()
+                .with_message(format!("unexpected token `{}`", t))
+                .with_labels(vec![Label::primary((), s).with_message("not valid here")]),
+        ),
     }
 }
 
@@ -221,7 +248,11 @@ fn parse_behaviour(tokens: &mut Lexer) -> Behaviour {
             let value = parse_assign_value(tokens);
             Behaviour::Assign { target, is, value }
         }
-        _ => panic!(),
+        _ => tokens.reporter().report_and_exit(
+            &Diagnostic::bug()
+                .with_message(format!("unexpected token `{}` in behaviour", token))
+                .with_labels(vec![Label::primary((), span).with_message("not valid here")]),
+        ),
     }
 }
 
@@ -230,12 +261,37 @@ fn parse_assign_value(tokens: &mut Lexer) -> AssignValue {
         Some((Token::Identifier, _)) => return AssignValue::Ops(parse_ops(tokens)),
         Some((Token::With, _)) => return AssignValue::Fn(parse_fn(tokens)),
         Some((Token::Number(n), span)) => AssignValue::Number(span, n),
-        Some((Token::NotHere, span)) => AssignValue::NotHere(span),
+        Some((Token::StringLiteral, span)) => AssignValue::String(span),
+        Some((Token::NotHere, _)) => return AssignValue::NotHere(parse_not_here(tokens)),
         Some((Token::Newline, _)) | None => return AssignValue::Ops(Vec::new()),
-        _ => panic!(),
+        Some((t, s)) => tokens.reporter().report_and_exit(
+            &Diagnostic::error()
+                .with_message(format!("unexpected token `{}` as assignment value", t))
+                .with_labels(vec![Label::primary((), s).with_message("not valid here")]),
+        ),
     };
     tokens.next();
     value
+}
+
+fn parse_not_here(tokens: &mut Lexer) -> NotHere {
+    let (_, not_here) = tokens.next().unwrap();
+    match tokens.peek() {
+        Some((Token::ButIsIn, but_is_in)) => {
+            tokens.next(); // Skip ButIsIn
+            let ident = tokens.monch(Token::Identifier);
+            NotHere {
+                not_here,
+                but_is_in: Some(but_is_in),
+                ident: Some(ident),
+            }
+        }
+        _ => NotHere {
+            not_here,
+            but_is_in: None,
+            ident: None,
+        },
+    }
 }
 
 fn parse_fn(tokens: &mut Lexer) -> Fn {
@@ -268,7 +324,13 @@ fn parse_ops(tokens: &mut Lexer) -> Vec<Op> {
                 let then = match tokens.peek() {
                     Some((Token::Then, span)) => Some(span),
                     Some((Token::Newline, _)) | None => None,
-                    _ => panic!(),
+                    Some((t, s)) => tokens.reporter().report_and_exit(
+                        &Diagnostic::error()
+                            .with_message(&format!("unexpected token `{}` in operator list", t))
+                            .with_labels(
+                                vec![Label::primary((), s).with_message("not valid here")],
+                            ),
+                    ),
                 };
                 ops.push(Op {
                     ident,
@@ -281,7 +343,11 @@ fn parse_ops(tokens: &mut Lexer) -> Vec<Op> {
                 tokens.next();
             }
             Token::Newline => break,
-            _ => panic!("expected ident or newline"),
+            _ => tokens.reporter().report_and_exit(
+                &Diagnostic::error()
+                    .with_message(&format!("unexpected token `{}` in operator list", token))
+                    .with_labels(vec![Label::primary((), span).with_message("not valid here")]),
+            ),
         }
     }
     ops
