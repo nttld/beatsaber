@@ -5,7 +5,7 @@ Welcome to beat saber
 ## Building
 
 ```bash
-bsc your_cool_program.beatsaber -I stdlib.c -o output_executable
+bsc your_cool_program.beatsaber -I c_file.c -o output_executable
 ./output_executable
 ```
 

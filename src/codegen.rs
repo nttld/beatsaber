@@ -11,9 +11,9 @@ use inkwell::types::{BasicTypeEnum, IntType};
 use inkwell::values::{BasicValueEnum, FunctionValue, GlobalValue, IntValue, PointerValue};
 use inkwell::{AddressSpace, OptimizationLevel};
 use std::collections::{BTreeMap, HashMap};
+use std::io::Write;
 use std::mem;
 use std::path::Path;
-use std::io::Write;
 
 /// Look for any identifier that is not declared in this function and assume they are captures.
 fn find_captures(stmts: &[ast2::DecoratedStmt], params: &[usize]) -> Vec<usize> {
@@ -523,15 +523,29 @@ impl<'ctx> Codegen<'ctx> {
             .write_to_file(&self.module, FileType::Object, Path::new(&tmp_out))
             .unwrap();
 
-        let includes = options.include_c.iter().map(|c| self.compile_c(c, &triple, opt as u32)).collect::<Result<Vec<_>, _>>()?;
+        let includes = options
+            .include_c
+            .iter()
+            .map(|c| self.compile_c(c, &triple, opt as u32))
+            .collect::<Result<Vec<_>, _>>()?;
 
-        let cc = cc::Build::new().target(triple.as_str().to_str().unwrap()).host(env!("HOST")).opt_level(opt as u32).cargo_metadata(false).try_get_compiler()?;
+        let cc = cc::Build::new()
+            .target(triple.as_str().to_str().unwrap())
+            .host(env!("HOST"))
+            .opt_level(opt as u32)
+            .cargo_metadata(false)
+            .try_get_compiler()?;
         let out_path_flag = if cc.is_like_msvc() {
             format!("/Fo\"{}\"", options.output.display())
         } else {
-           format!("-o{}", options.output.display())
+            format!("-o{}", options.output.display())
         };
-        let output = cc.to_command().arg(&tmp_out).args(includes.iter()).arg(out_path_flag).output()?;
+        let output = cc
+            .to_command()
+            .arg(&tmp_out)
+            .args(includes.iter())
+            .arg(out_path_flag)
+            .output()?;
         if !output.status.success() {
             std::io::stderr().lock().write_all(&output.stderr)?;
             std::io::stderr().lock().write_all(&output.stderr)?;
@@ -548,18 +562,24 @@ impl<'ctx> Codegen<'ctx> {
     fn compile_c(&self, file: impl AsRef<Path>, target: &TargetTriple, opt: u32) -> Result<String> {
         let file = file.as_ref();
         let out_file = format!("{}.tmp", file.display());
-        let cc = cc::Build::new().target(target.as_str().to_str().unwrap()).host(env!("HOST")).opt_level(opt).cargo_metadata(false).try_get_compiler()?;
-        let no_link_flag = if cc.is_like_msvc() {
-            "/c"
-        } else {
-            "-c"
-        };
+        let cc = cc::Build::new()
+            .target(target.as_str().to_str().unwrap())
+            .host(env!("HOST"))
+            .opt_level(opt)
+            .cargo_metadata(false)
+            .try_get_compiler()?;
+        let no_link_flag = if cc.is_like_msvc() { "/c" } else { "-c" };
         let out_path_flag = if cc.is_like_msvc() {
             format!("/Fo\"{}\"", out_file)
         } else {
-           format!("-o{}", out_file)
+            format!("-o{}", out_file)
         };
-        let output = cc.to_command().arg(file).arg(no_link_flag).arg(out_path_flag).output()?;
+        let output = cc
+            .to_command()
+            .arg(file)
+            .arg(no_link_flag)
+            .arg(out_path_flag)
+            .output()?;
         if !output.status.success() {
             std::io::stderr().lock().write_all(&output.stderr)?;
             std::io::stderr().lock().write_all(&output.stderr)?;

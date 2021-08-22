@@ -24,7 +24,7 @@ struct Args {
     /// Generate position independent code
     #[clap(long)]
     pic: bool,
-    /// C source files to compile and link 
+    /// C source files to compile and link
     #[clap(short = 'I')]
     include_c: Vec<String>,
 }
@@ -47,7 +47,7 @@ fn main() -> Result<()> {
         },
         pic: args.pic,
         target: args.target,
-        include_c: args.include_c
+        include_c: args.include_c,
     };
     // dbg!(&ast2);
     codegen::Codegen::compile(ast2, options)?;
