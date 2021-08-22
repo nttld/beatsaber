@@ -1,20 +1,20 @@
 // memory_size is 100
 // one is 1
-// calloc is not here and is big
+// calloc is not here this is big
 one.memory_size // memory is calloc
 // data_ptr is 0
 // zero is 0
 
 // inc is not here
 // dec is not here
-// add is not here and is big
-// storeb is not here and is big
+// add is not here this is big
+// storeb is not here this is big
 // deref is not here
 // sizeptr is not here
 // readfile is not here
 // not is not here
-// equal is not here and is big
-// equalchar is not here and is big
+// equal is not here this is big
+// equalchar is not here this is big
 
 // getchar is not here
 // putchar is not here

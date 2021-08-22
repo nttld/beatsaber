@@ -99,6 +99,17 @@ pub struct Parser1<'a> {
     line: usize,
 }
 
+impl Expr {
+    pub fn span(&self) -> Span {
+        match self {
+            Expr::Binop { lhs, rhs, .. } => (lhs.span().start)..(rhs.span().end),
+            Expr::Unop { expr, op } => (expr.span().start)..(op.end),
+            Expr::Paren { l, r, .. } => (l.start)..(r.end),
+            Expr::Ident(ident) => ident.clone(),
+        }
+    }
+}
+
 impl Iterator for Parser1<'_> {
     type Item = Stmt;
 
@@ -282,7 +293,7 @@ fn parse_not_here(tokens: &mut Lexer) -> NotHere {
             tokens.next(); // Skip ButIsIn
             let ident = tokens.monch(Token::Identifier);
             let and_is_big = match tokens.peek() {
-                Some((Token::AndIsBig, sp)) => {
+                Some((Token::ThisIsBig, sp)) => {
                     tokens.next();
                     Some(sp)
                 }
@@ -297,7 +308,7 @@ fn parse_not_here(tokens: &mut Lexer) -> NotHere {
         }
         _ => {
             let and_is_big = match tokens.peek() {
-                Some((Token::AndIsBig, sp)) => {
+                Some((Token::ThisIsBig, sp)) => {
                     tokens.next();
                     Some(sp)
                 }

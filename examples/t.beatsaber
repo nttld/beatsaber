@@ -1,10 +1,9 @@
-// idk is "string literal with \"more quotes\""
+// one_param is with a
+a. // still in one_param return is one_param
 
-// add is not here and is big
-// you is not here but is in hell and is big
-// thing is with a and b
+// two_params is with a and b
+a.b // still in two_params return is two_params
 
-a.b // still in thing return is add
-// one is 1
-// two is 2
-one.two // return is thing
+// zero is 0
+zero.zero // yeet is one_param
+zero. // yeet is two_params

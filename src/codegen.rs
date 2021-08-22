@@ -165,9 +165,7 @@ impl<'ctx> Codegen<'ctx> {
             match stmt {
                 ast2::DecoratedStmt::Callable(ast2::Callable::ExternFunction(stmt)) => {
                     self.function_captures.insert(stmt.ident.id, Vec::new());
-                    let mut param_types = vec![
-                        BasicTypeEnum::IntType(self.i64)
-                    ];
+                    let mut param_types = vec![BasicTypeEnum::IntType(self.i64)];
                     if stmt.two_param {
                         param_types.push(BasicTypeEnum::IntType(self.i64));
                     }
@@ -229,10 +227,7 @@ impl<'ctx> Codegen<'ctx> {
 
     fn build_main(&mut self, body: Vec<ast2::DecoratedStmt>) {
         let param_ty = BasicTypeEnum::IntType(self.i64);
-        let fn_type = self
-            .context
-            .i32_type()
-            .fn_type(&[param_ty, param_ty], false);
+        let fn_type = self.i64.fn_type(&[param_ty, param_ty], false);
         let fn_val = self
             .module
             .add_function("main", fn_type, Some(Linkage::External));
@@ -472,7 +467,8 @@ impl<'ctx> Codegen<'ctx> {
                 let ptr = global.as_pointer_value();
 
                 let local = self.get_local(stmt.ident.id, true);
-                self.builder.build_store(local, ptr);
+                let int = self.builder.build_ptr_to_int(ptr, self.i64, "");
+                self.builder.build_store(local, int);
             }
             a => unreachable!("{:?}", a),
         }

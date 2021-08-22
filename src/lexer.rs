@@ -19,14 +19,16 @@ pub enum Token {
     If,
     #[token("goto")]
     Goto,
+    #[token("and")]
+    And,
     #[regex("yeet|fuckall")]
     Discard,
     #[token("not here")]
     NotHere,
     #[token("but is in")]
     ButIsIn,
-    #[token("and is big")]
-    AndIsBig,
+    #[token("this is big")]
+    ThisIsBig,
     #[token("return")]
     Return,
     #[token("(")]
@@ -35,8 +37,6 @@ pub enum Token {
     ParenRight,
     #[token("still in")]
     StillIn,
-    #[token("and")]
-    And,
     #[regex(r"\n|\f")]
     Newline,
     #[regex(r"[A-Za-z_][A-Za-z_0-9]*")]

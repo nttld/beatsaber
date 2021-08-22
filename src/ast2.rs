@@ -101,6 +101,15 @@ pub enum DecoratedStmt {
     GotoStmt(GotoStmt),
 }
 
+impl Callable {
+    pub fn two_params(&self) -> bool {
+        match self {
+            Callable::FuncBlock(FuncBlock { decl, .. }) => decl.p2.is_some(),
+            Callable::ExternFunction(ExternFunction { two_param, .. }) => *two_param,
+        }
+    }
+}
+
 pub const ARGC_IDENT: Identifier = Identifier { id: usize::MAX };
 pub const ARGV_IDENT: Identifier = Identifier { id: usize::MAX - 1 };
 
@@ -463,9 +472,13 @@ fn zip_ops_with_expr<'a>(
         reporter: &Reporter<'a>,
     ) -> (DecoratedExpr, &'ops [Op]) {
         match expr {
-            Expr::Binop { lhs, rhs, op: dot } => {
-                let (lhs, ops) = inner(lhs, ops, ids, fn_ids, src, reporter);
-                let (rhs, ops) = inner(rhs, ops, ids, fn_ids, src, reporter);
+            Expr::Binop {
+                lhs: lhs_expr,
+                rhs: rhs_expr,
+                op: dot,
+            } => {
+                let (lhs, ops) = inner(lhs_expr, ops, ids, fn_ids, src, reporter);
+                let (rhs, ops) = inner(rhs_expr, ops, ids, fn_ids, src, reporter);
                 let (op, ops) = ops.split_first().unwrap_or_else(|| {
                     reporter.report_and_exit(
                         &Diagnostic::error()
@@ -487,7 +500,7 @@ fn zip_ops_with_expr<'a>(
                             ]),
                     )
                 });
-                if !fn_ids.contains_key(ident) {
+                let fun = fn_ids.get(ident).unwrap_or_else(|| {
                     reporter.report_and_exit(
                         &Diagnostic::error()
                             .with_message("operation bound to variable")
@@ -497,7 +510,21 @@ fn zip_ops_with_expr<'a>(
                                 Label::secondary((), dot.clone())
                                     .with_message("for this operation"),
                             ]),
-                    );
+                    )
+                });
+                if !fun.two_params() {
+                    reporter.report_and_exit(
+                        &Diagnostic::error()
+                            .with_message("invalid parameter count")
+                            .with_labels(vec![
+                                Label::primary((), op.ident.clone())
+                                    .with_message("this function only takes one parameter"),
+                                Label::secondary((), lhs_expr.span())
+                                    .with_message("first parameter provided here"),
+                                Label::secondary((), rhs_expr.span())
+                                    .with_message("second parameter provided here"),
+                            ]),
+                    )
                 }
 
                 (
@@ -509,8 +536,11 @@ fn zip_ops_with_expr<'a>(
                     ops,
                 )
             }
-            Expr::Unop { expr, op: dot } => {
-                let (expr, ops) = inner(expr, ops, ids, fn_ids, src, reporter);
+            Expr::Unop {
+                expr: expr_expr,
+                op: dot,
+            } => {
+                let (expr, ops) = inner(expr_expr, ops, ids, fn_ids, src, reporter);
                 let (op, ops) = ops.split_first().unwrap_or_else(|| {
                     reporter.report_and_exit(
                         &Diagnostic::error()
@@ -532,7 +562,7 @@ fn zip_ops_with_expr<'a>(
                             ]),
                     )
                 });
-                if !fn_ids.contains_key(ident) {
+                let fun = fn_ids.get(ident).unwrap_or_else(|| {
                     reporter.report_and_exit(
                         &Diagnostic::error()
                             .with_message("operation bound to variable")
@@ -542,7 +572,19 @@ fn zip_ops_with_expr<'a>(
                                 Label::secondary((), dot.clone())
                                     .with_message("for this operation"),
                             ]),
-                    );
+                    )
+                });
+                if fun.two_params() {
+                    reporter.report_and_exit(
+                        &Diagnostic::error()
+                            .with_message("invalid parameter count")
+                            .with_labels(vec![
+                                Label::primary((), op.ident.clone())
+                                    .with_message("this function takes two parameters"),
+                                Label::secondary((), expr_expr.span())
+                                    .with_message("single parameter provided here"),
+                            ]),
+                    )
                 }
 
                 (

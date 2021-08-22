@@ -1,6 +1,16 @@
 # beatsaber
 For langjam
 
+## Prerequisites: 
+* GCC
+* LLVM 12
+* Rust
+
+```bash
+./build_example.sh
+./beatsaber
+```
+
 TODO:
 
 - Error reporting done
