@@ -4,28 +4,32 @@ For langjam
 
 ## Documentation
 
-See [docs]("docs") for more info.
+See [docs](docs) for more info.
 
 ### Prerequisites
 
-* GCC
+* A compatible C compiler
 * LLVM 12
 * Rust
 
 ### Getting Started
 
-See [getting-started]("docs/getting_started.md")
+See [getting-started](docs/getting_started.md)
+
+### Building the compiler
 
 ```bash
-./build_example.sh
-./beatsaber
+# Compile to ./target/release/bsc
+cargo build --release
+# Or alternatively install to ~/.cargo/bin
+cargo install --path .
 ```
 
-TODO:
+### Compiling the example
 
-- Error reporting done
-- String literals done
-- Extern "C" blocks no
-- Dynamic dlopens (grammar supported, still needs emitted asm for dlopen)
-- Docs/more examples more examples yes, docs no
-- Gotos done
+```bash
+# Compile the beatsaber program
+bsc examples/beatsaber.beatsaber -o beatsaber
+# Run the result
+./beatsaber
+```

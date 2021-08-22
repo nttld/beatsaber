@@ -6,6 +6,7 @@ use std::collections::HashMap;
 #[derive(PartialEq, Eq, Hash, Clone, Copy, Debug)]
 pub struct Identifier {
     pub id: usize,
+    //pub name: Span,
 }
 
 #[derive(Clone, Debug)]

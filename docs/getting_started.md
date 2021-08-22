@@ -5,7 +5,8 @@ Welcome to beat saber
 ## Building
 
 ```bash
-bsc your_cool_program.beatsaber
+bsc your_cool_program.beatsaber -I stdlib.c -o output_executable
+./output_executable
 ```
 
 ## Development
@@ -16,9 +17,4 @@ bsc your_cool_program.beatsaber
 res. // yeet is puts
 ```
 
-## Execution
-
-```bash
-gcc your_cool_program.o stdlib.o -o output_executable
-./output_executable
-```
+See [grammar](grammar.md) and [syntax](syntax.md) for more info.

@@ -13,8 +13,8 @@ struct Args {
     /// Input source file path.
     input: String,
     /// Output object file path.
-    #[clap(short)]
-    output: Option<String>,
+    #[clap(short, default_value = "a.out")]
+    output: PathBuf,
     /// Target triple
     #[clap(long)]
     target: Option<String>,
@@ -24,20 +24,20 @@ struct Args {
     /// Generate position independent code
     #[clap(long)]
     pic: bool,
+    /// C source files to compile and link 
+    #[clap(short = 'I')]
+    include_c: Vec<String>,
 }
 
 fn main() -> Result<()> {
     let args = Args::parse();
-
-    let output_path = PathBuf::from(args.output.as_ref().unwrap_or(&args.input));
-    let object_path = output_path.with_extension("o");
 
     let src = fs::read_to_string(&args.input).unwrap();
     let lexer = lexer::lexer(&src, &args.input);
     let parser = ast1::parser(lexer);
     let ast2 = ast2::parse(parser);
     let options = CodegenOptions {
-        output: object_path.as_path(),
+        output: args.output.as_path(),
         optimization: match args.optimization {
             0 => codegen::OptLevel::None,
             1 => codegen::OptLevel::Less,
@@ -47,8 +47,9 @@ fn main() -> Result<()> {
         },
         pic: args.pic,
         target: args.target,
+        include_c: args.include_c
     };
-    dbg!(&ast2);
+    // dbg!(&ast2);
     codegen::Codegen::compile(ast2, options)?;
 
     Ok(())

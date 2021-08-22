@@ -13,7 +13,7 @@ The following is a non-exhaustive list of all currently supported keywords in be
   - Used to chain multiple operators together in expressions.
   - `a.. // yeet is inc then inc`
 - `with`
-  - Used to declare a function with one or two parameters
+  - Used to declare a function with one or two parameters. Functions can shadow values outside of functions, and can also use identifiers defined before. Identifiers are captured by value.
   - `// my_func is with a`
 - `if`
   - Used to evaluate conditionally based off of an evaluated identifier.
@@ -32,7 +32,7 @@ The following is a non-exhaustive list of all currently supported keywords in be
 - `but is in`
   - Specifies a module name that an external function can be found in.
   - `// malloc_special is not here but is in libthing.so`
-- `and is big`
+- `this is big`
   - Specifies an external function requires two parameters instead of one.
   - `// calloc is not here this is big`
 - `return`
@@ -54,8 +54,12 @@ Identifiers can be shadowed, except for functions, which must not be shadowed, i
 
 Identifiers are typically used with operators, but are also used in behaviours. For example, `if`, `with`, `and`, and actual operations must be used with identifiers.
 
+There are two special identifiers that exist implicitly: `argc` and `argv`.
+
 ## Operations
 
-The only operator in beat saber is `.`. This is used for unary operations (`a.`) and binary operations (`a.b`).
+The only operator in beat saber is `.`
+
+This is used for unary operations (`a.`) and binary operations (`a.b`).
 
 In order to specify the operation, you must provide an operation for each `.` you provide in your statement. These will be bound to the operations in tree-parse order (first evaluated first).

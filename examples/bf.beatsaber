@@ -85,7 +85,7 @@ new_ip // still in parse_lend if eq return is
 loop_start2 // still in parse_lend goto is
 
 // loop is 88
-ip..zero // cond is deref then not
+ip.. // cond is deref then not
 zero // if cond return is
 ip. // inst is deref
 
